@@ -1,0 +1,19 @@
+# Configuração com senhas
+config.env
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

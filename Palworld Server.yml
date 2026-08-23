@@ -1,0 +1,105 @@
+services:
+  Painel:
+    command:
+      - python3
+      - -u
+      - /app/painel.py
+    container_name: Palworld-Painel
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1GB
+        reservations:
+          cpus: "0.00"
+          memory: 512MB
+      placement: {}
+    entrypoint: null
+    environment:
+      - ADMIN_PASSWORD=
+      - BACKUP_DIR=/data/backups
+      - PALWORLD_API=http://127.0.0.1:8212
+      - PANEL_PASSWORD=
+      - PANEL_PORT=3564
+      - TZ=UTC
+    image: python:3.12-slim
+    labels:
+      icon: https://docs.palworldgame.com/img/logo.jpg
+    network_mode: host
+    ports:
+      - mode: ingress
+        target: 3564
+        published: "3564"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /DATA/AppData/palworld/painel
+        target: /app
+      - type: bind
+        source: /DATA/AppData/palworld/backups
+        target: /data/backups
+  palworld:
+    cpu_shares: 90
+    command: []
+    container_name: palworld-server
+    deploy:
+      resources:
+        limits:
+          memory: 4GB
+        reservations:
+          memory: 512MB
+      placement: {}
+    entrypoint: null
+    environment:
+      - ADMIN_PASSWORD=
+      - AUTO_UPDATE_ENABLED=false
+      - AdminPlayers=
+      - COMMUNITY=false
+      - CROSSPLAY_PLATFORMS=(Steam,Xbox)
+      - PGID=1000
+      - PLAYERS=4
+      - PORT=8211
+      - PUID=1000
+      - REST_API_ENABLED=true
+      - REST_API_PORT=8212
+      - SERVER_DESCRIPTION=
+      - SERVER_NAME=
+      - TZ=UTC
+      - UPDATE_ON_BOOT=false
+      - USEAUTH=false
+    image: thijsvanloef/palworld-server-docker:latest
+    labels:
+      icon: https://docs.palworldgame.com/img/logo.jpg
+    network_mode: bridge
+    ports:
+      - target: 8211
+        published: "8211"
+        protocol: udp
+      - target: 27015
+        published: "27015"
+        protocol: udp
+      - target: 8212
+        published: "8212"
+        protocol: tcp
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - type: bind
+        source: /DATA/AppData/palworld
+        target: /palworld
+x-casaos:
+  author: self
+  category: self
+  hostname:
+  icon: https://docs.palworldgame.com/img/logo.jpg
+  index: /
+  is_uncontrolled: false
+  main: Painel
+  port_map: "3564"
+  scheme: http
+  store_app_id: palworld
+  title:
+    custom: Palworld Server
+    en_us: palworld
+name: palworld

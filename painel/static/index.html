@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Painel de administração do servidor dedicado de Palworld">
+<meta name="theme-color" content="#0a0d12">
+<title>Painel Palworld</title>
+<link rel="icon" href="/logo.jpg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- sprite de ícones (traço 1.8, estilo próprio) -->
+<svg width="0" height="0" class="sprite" aria-hidden="true">
+  <defs>
+    <symbol id="i-paw" viewBox="0 0 24 24">
+      <g fill="currentColor" stroke="none">
+        <ellipse cx="7" cy="8.2" rx="1.9" ry="2.4" transform="rotate(-18 7 8.2)"/>
+        <ellipse cx="12" cy="6.6" rx="1.9" ry="2.5"/>
+        <ellipse cx="17" cy="8.2" rx="1.9" ry="2.4" transform="rotate(18 17 8.2)"/>
+        <path d="M12 11c-2.9 0-5.4 2.2-5.4 4.6 0 1.6 1.2 2.6 2.7 2.6 1 0 1.8-.4 2.7-.4s1.7.4 2.7.4c1.5 0 2.7-1 2.7-2.6C17.4 13.2 14.9 11 12 11z"/>
+      </g>
+    </symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24">
+      <path d="M4.9 19.1a10 10 0 1 1 14.2 0"/>
+      <path d="m12 14 3.6-4.4"/>
+      <circle cx="12" cy="14" r="1.1" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-users" viewBox="0 0 24 24">
+      <circle cx="9" cy="8" r="3.2"/>
+      <path d="M3.5 19c.6-3 2.8-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/>
+      <path d="M15.5 5.6a3.2 3.2 0 0 1 0 5.9"/>
+      <path d="M17 14.7c2 .6 3.2 2 3.6 4.3"/>
+    </symbol>
+    <symbol id="i-power" viewBox="0 0 24 24">
+      <path d="M12 3v8"/>
+      <path d="M6.3 6.5a8 8 0 1 0 11.4 0"/>
+    </symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24">
+      <path d="M4 7h8M17 7h3M4 12h3M12 12h8M4 17h8M17 17h3"/>
+      <circle cx="14.5" cy="7" r="2"/><circle cx="9.5" cy="12" r="2"/><circle cx="14.5" cy="17" r="2"/>
+    </symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" stroke="none"/>
+      <path d="M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 19a10 10 0 0 1 0-14M19 5a10 10 0 0 1 0 14"/>
+    </symbol>
+    <symbol id="i-save" viewBox="0 0 24 24">
+      <rect x="4" y="4" width="16" height="16" rx="2.5"/>
+      <path d="M8 4v5h7V4M7 20v-6h10v6"/>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 12a8 8 0 1 1-2.3-5.7"/>
+      <path d="M20 4v4h-4"/>
+    </symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24">
+      <rect x="9" y="9" width="11" height="11" rx="2"/>
+      <path d="M5 15V6a2 2 0 0 1 2-2h9"/>
+    </symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24">
+      <path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/>
+      <path d="m15 8 4 4-4 4M19 12h-9"/>
+    </symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24">
+      <path d="M12 3 2.8 19.2h18.4L12 3z"/>
+      <path d="M12 10v4"/>
+      <circle cx="12" cy="16.8" r=".55" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="i-link" viewBox="0 0 24 24">
+      <path d="M9.5 14.5 14.5 9.5"/>
+      <path d="M11 6.5 12.8 4.7a4 4 0 0 1 5.7 5.7L16.6 12.2"/>
+      <path d="M13 17.5l-1.8 1.8a4 4 0 0 1-5.7-5.7L7.4 11.8"/>
+    </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>
+    </symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M5.8 5.8l12.4 12.4"/>
+    </symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24">
+      <rect x="3" y="4" width="18" height="5" rx="1.2"/>
+      <path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/>
+      <path d="M10 13h4"/>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- ============================= LOGIN ============================= -->
+<div id="login-view" class="overlay">
+  <form id="login-form" class="card login-card">
+    <div class="login-logo"><img src="/logo.jpg" alt="Logo do servidor"></div>
+    <h1>Painel Palworld</h1>
+    <p class="muted">Acesso administrativo do servidor</p>
+    <input type="password" id="login-pass" placeholder="Senha do painel"
+           autocomplete="current-password" required autofocus>
+    <button type="submit" class="btn primary wide">Entrar</button>
+    <p id="login-error" class="error" role="alert"></p>
+  </form>
+</div>
+
+<!-- ============================= APP ============================= -->
+<div id="app-view" class="hidden">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"><img src="/logo.jpg" alt=""></span>
+      Painel Palworld
+    </div>
+    <div class="server-id">
+      <span id="srv-name">—</span>
+      <span id="srv-version" class="pill hidden"></span>
+    </div>
+    <button id="btn-logout" class="btn ghost small">
+      <svg class="icon"><use href="#i-logout"/></svg> Sair
+    </button>
+  </header>
+
+  <!-- faixa de status -->
+  <section class="status-strip card">
+    <div class="dot-wrap">
+      <span id="status-dot" class="dot off" aria-hidden="true"></span>
+      <span id="status-text" role="status">Verificando…</span>
+    </div>
+    <div class="stat"><b id="stat-fps">—</b><span>FPS</span></div>
+    <div class="stat"><b id="stat-frame">—</b><span>frame ms</span></div>
+    <div class="stat"><b id="stat-players">—</b><span>jogadores</span></div>
+    <div class="stat"><b id="stat-uptime">—</b><span>ligado há</span></div>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Seções do painel">
+    <button data-tab="overview" class="active" role="tab" aria-selected="true"><svg class="icon"><use href="#i-gauge"/></svg>Visão geral</button>
+    <button data-tab="players" role="tab" aria-selected="false"><svg class="icon"><use href="#i-users"/></svg>Jogadores</button>
+    <button data-tab="control" role="tab" aria-selected="false"><svg class="icon"><use href="#i-power"/></svg>Controle</button>
+    <button data-tab="backups" role="tab" aria-selected="false"><svg class="icon"><use href="#i-archive"/></svg>Backups</button>
+    <button data-tab="settings" role="tab" aria-selected="false"><svg class="icon"><use href="#i-sliders"/></svg>Configurações</button>
+  </nav>
+
+  <main>
+
+    <!-- ========= VISÃO GERAL ========= -->
+    <section id="tab-overview" class="tab active" role="tabpanel" tabindex="0">
+      <div class="grid-2">
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-wave"/></svg>Anunciar aos jogadores</h2>
+          <p>Mensagem no chat do jogo para todos que estão online.</p>
+          <textarea id="ov-msg" rows="3" maxlength="500"
+                    placeholder="Ex: Reinício em 10 minutos, salvem o progresso"></textarea>
+          <div class="row-end">
+            <span id="ov-count" class="muted small mono">0/500</span>
+            <button id="ov-send" class="btn primary">Anunciar</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-gauge"/></svg>FPS do servidor</h2>
+          <canvas id="fps-spark" height="72"></canvas>
+          <div class="spark-meta mono small">
+            <span>mín <b id="spark-min">—</b></span>
+            <span>atual <b id="spark-cur">—</b></span>
+            <span>máx <b id="spark-max">—</b></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-globe"/></svg>Mundo &amp; servidor</h2>
+          <div class="world-grid">
+            <div><span>Dia do jogo</span><b id="wd-days">—</b></div>
+            <div><span>Bases no mundo</span><b id="wd-bases">—</b></div>
+            <div><span>Versão</span><b id="wd-ver">—</b></div>
+            <div><span>Ligado há</span><b id="wd-uptime">—</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========= JOGADORES ========= -->
+    <section id="tab-players" class="tab" role="tabpanel" tabindex="0">
+      <div class="card">
+        <div class="card-head">
+          <h2><svg class="icon"><use href="#i-users"/></svg>Jogadores conectados</h2>
+          <button id="pl-refresh" class="btn ghost small">
+            <svg class="icon"><use href="#i-refresh"/></svg> Atualizar
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Nome</th><th>Nível</th><th>Ping</th><th>IP</th><th>ID</th><th class="th-actions">Ações</th></tr>
+            </thead>
+            <tbody id="players-tbody"></tbody>
+          </table>
+        </div>
+        <div class="unban-row">
+          <input type="text" id="unban-id" placeholder="ID do jogador banido (ex: steam_76561198…)">
+          <button id="btn-unban" class="btn ghost small">
+            <svg class="icon"><use href="#i-ban"/></svg> Remover ban
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========= CONTROLE ========= -->
+    <section id="tab-control" class="tab" role="tabpanel" tabindex="0">
+      <div class="grid-2">
+
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-save"/></svg>Salvar mundo</h2>
+          <p>Força o save do mundo no disco agora.</p>
+          <button id="ct-save" class="btn primary">
+            <svg class="icon"><use href="#i-save"/></svg> Salvar agora
+          </button>
+        </div>
+
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-wave"/></svg>Anúncio rápido</h2>
+          <p>Mensagens prontas ou personalizadas.</p>
+          <div class="chips">
+            <button class="chip" data-msg="Reinício do servidor em 5 minutos!">Reinício 5 min</button>
+            <button class="chip" data-msg="Servidor reiniciando agora — voltamos já!">Reiniciando</button>
+            <button class="chip" data-msg="Bem-vindos ao servidor! Bom jogo">Boas-vindas</button>
+          </div>
+          <input type="text" id="ct-msg-input" maxlength="500" placeholder="Ou digite sua mensagem…">
+          <div class="row-end">
+            <button id="ct-send" class="btn primary">Enviar anúncio</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><svg class="icon"><use href="#i-refresh"/></svg>Reiniciar servidor</h2>
+          <p>Avisa os jogadores, salva o mundo e desliga com contagem.
+             O Docker religa tudo automaticamente em seguida.</p>
+          <label class="field-label" for="ct-restart-wait">Contagem regressiva</label>
+          <select id="ct-restart-wait">
+            <option value="15">15 segundos</option>
+            <option value="30" selected>30 segundos</option>
+            <option value="60">1 minuto</option>
+            <option value="300">5 minutos</option>
+          </select>
+          <div class="row-end">
+            <button id="ct-restart" class="btn warn">
+              <svg class="icon"><use href="#i-refresh"/></svg> Reiniciar
+            </button>
+          </div>
+        </div>
+
+        <div class="card danger-card">
+          <h2><svg class="icon"><use href="#i-alert"/></svg>Zona de perigo</h2>
+          <p>Aviso aos jogadores, save e desligamento com contagem.
+             Como o container usa <code>restart: unless-stopped</code>, o Docker religa sozinho —
+             para deixar offline de verdade, pare pelo CasaOS.</p>
+          <label class="field-label" for="ct-shutdown-wait">Contagem regressiva</label>
+          <select id="ct-shutdown-wait">
+            <option value="15">15 segundos</option>
+            <option value="30" selected>30 segundos</option>
+            <option value="60">1 minuto</option>
+            <option value="300">5 minutos</option>
+          </select>
+          <div class="row-end">
+            <button id="ct-shutdown" class="btn danger">
+              <svg class="icon"><use href="#i-power"/></svg> Desligar servidor
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ========= BACKUPS ========= -->
+    <section id="tab-backups" class="tab" role="tabpanel" tabindex="0">
+      <div class="card">
+        <div class="card-head">
+          <h2><svg class="icon"><use href="#i-archive"/></svg>Backups do mundo</h2>
+          <button id="bk-refresh" class="btn ghost small">
+            <svg class="icon"><use href="#i-refresh"/></svg> Atualizar
+          </button>
+        </div>
+        <p class="muted small">Arquivos gerados pelo backup automático do container
+           (<code>/palworld/backups</code>). Clique em baixar para salvar uma cópia
+           no seu computador.</p>
+        <p id="bk-hint" class="muted small hidden"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Arquivo</th><th>Tamanho</th><th>Gerado em</th><th class="th-actions">Ações</th></tr>
+            </thead>
+            <tbody id="backups-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========= CONFIGURAÇÕES ========= -->
+    <section id="tab-settings" class="tab" role="tabpanel" tabindex="0">
+      <div class="card">
+        <div class="card-head">
+          <h2><svg class="icon"><use href="#i-sliders"/></svg>Configurações vigentes</h2>
+          <button id="st-refresh" class="btn ghost small">
+            <svg class="icon"><use href="#i-refresh"/></svg> Atualizar
+          </button>
+        </div>
+        <p class="muted small">Somente leitura — reflete o que roda agora no servidor
+           (PalWorldSettings.ini). Clique num valor para copiá-lo.
+           Para alterar, edite as variáveis no
+           <code>Palworld Server.yml</code> e recrie o container.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th style="width:42%">Chave</th><th>Valor</th></tr></thead>
+            <tbody id="settings-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+</div>
+
+<!-- ============================= MODAL ============================= -->
+<div id="modal-backdrop" class="overlay hidden">
+  <div class="card modal">
+    <h2 id="modal-title">Confirmar</h2>
+    <p id="modal-text" class="muted"></p>
+    <input type="text" id="modal-input" class="hidden" placeholder="">
+    <div class="row-end modal-actions">
+      <button id="modal-cancel" class="btn ghost">Cancelar</button>
+      <button id="modal-ok" class="btn danger">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="/app.js"></script>
+</body>
+</html>
