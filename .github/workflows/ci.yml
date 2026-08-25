@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Sintaxe (py_compile em todos os módulos)
+        run: |
+          python -m py_compile painel/painel.py painel/store.py \
+            painel/players.py painel/settings_catalog.py \
+            painel/settings_ini.py painel/settings_editor.py \
+            painel/scheduler.py painel/backups_manager.py \
+            painel/health.py painel/notifications.py painel/users.py
+
+      - name: Testes automatizados (stdlib puro)
+        run: python tests/test_painel.py
+
+      - name: Smoke — mock + painel + endpoints essenciais
+        run: |
+          python3 tests/mock_palworld.py > /tmp/mock.log 2>&1 &
+          PANEL_PASSWORD=ci-smoke ADMIN_PASSWORD=ci-admin \
+            PANEL_PORT=8123 python3 painel/painel.py > /tmp/painel.log 2>&1 &
+          sleep 2
+          TOK=$(curl -s -X POST http://127.0.0.1:8123/api/login \
+            -H 'Content-Type: application/json' \
+            -d '{"password":"ci-smoke"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+          curl -sf http://127.0.0.1:8123/api/status -H "X-Panel-Token: $TOK" > /dev/null
+          curl -sf http://127.0.0.1:8123/ | grep -q "Painel Palworld"
+          curl -sf http://127.0.0.1:8123/status > /dev/null
+          curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8123/api/public/status | grep -q 200
+
+      - name: Frontend — sintaxe JS e presença dos artefatos PWA
+        run: |
+          node --check painel/static/app.js
+          test -f painel/static/manifest.webmanifest
+          test -f painel/static/sw.js
+          test -f painel/static/status.html
+
+      - name: Segurança — nada de senha padrão no repositório
+        run: |
+          ! grep -rn "PANEL_PASSWORD=123\|ADMIN_PASSWORD=123" painel/ .env.example

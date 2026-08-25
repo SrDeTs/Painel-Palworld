@@ -1,6 +1,9 @@
 # Configuração com senhas
 config.env
 
+# Dados locais do painel (SQLite + credencial autogerada)
+painel/data/
+
 # Logs
 *.log
 

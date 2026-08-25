@@ -18,14 +18,22 @@ services:
     environment:
       - ADMIN_PASSWORD=
       - BACKUP_DIR=/data/backups
-      - PALWORLD_API=http://127.0.0.1:8212
+      - PALWORLD_API=http://palworld:8212
+      - PALWORLD_INI=/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
       - PANEL_PASSWORD=
       - PANEL_PORT=3564
       - TZ=UTC
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python3 -c "import urllib.request as u; u.urlopen('http://127.0.0.1:3564/', timeout=5)"
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     image: python:3.12-slim
     labels:
       icon: https://docs.palworldgame.com/img/logo.jpg
-    network_mode: host
     ports:
       - mode: ingress
         target: 3564
@@ -39,6 +47,9 @@ services:
       - type: bind
         source: /DATA/AppData/palworld/backups
         target: /data/backups
+      - type: bind
+        source: /DATA/AppData/palworld
+        target: /palworld
   palworld:
     cpu_shares: 90
     command: []
@@ -79,9 +90,6 @@ services:
       - target: 27015
         published: "27015"
         protocol: udp
-      - target: 8212
-        published: "8212"
-        protocol: tcp
     restart: unless-stopped
     stop_grace_period: 30s
     volumes:
