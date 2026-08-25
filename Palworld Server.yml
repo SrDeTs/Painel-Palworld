@@ -21,6 +21,7 @@ services:
       - ADMIN_PASSWORD=
       - BACKUP_DIR=/data/backups
       - GAME_PORT=8211
+      - PALWORLD_ADMIN_SECRET_FILE=/palworld/panel-admin-secret
       - PALWORLD_API=http://palworld:8212
       - PALWORLD_INI=/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini
       - PALWORLD_SAVE_DIR=/palworld/Pal/Saved/SaveGames
@@ -67,7 +68,9 @@ services:
         reservations:
           memory: 512MB
       placement: {}
-    entrypoint: null
+    entrypoint:
+      - /bin/bash
+      - /palworld/painel/palworld_entrypoint.sh
     environment:
       - ADMIN_PASSWORD=
       - AUTO_UPDATE_ENABLED=false
