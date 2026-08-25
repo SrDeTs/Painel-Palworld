@@ -1,10 +1,11 @@
 /* Painel Palworld — service worker
-   Cache-first só para o casco estático; API e SSE sempre na rede. */
+   Rede primeiro para evitar UI antiga depois de atualizar o painel.
+   API e SSE nunca passam pelo cache. */
 "use strict";
 
-const VERSAO = "pp-v3";
+const VERSAO = "pp-v4";
 const CASCO = [
-  "/", "/index.html", "/app.js", "/style.css", "/logo.jpg",
+  "/index.html", "/app.js", "/style.css", "/logo.jpg",
   "/manifest.webmanifest",
 ];
 
@@ -23,18 +24,33 @@ self.addEventListener("activate", (ev) => {
 
 self.addEventListener("fetch", (ev) => {
   const url = new URL(ev.request.url);
-  if (url.pathname.startsWith("/api/") || ev.request.method !== "GET") {
-    return; // rede direta (dados vivos, SSE, ações)
+
+  if (url.origin !== self.location.origin ||
+      url.pathname.startsWith("/api/") ||
+      url.pathname === "/metrics" ||
+      ev.request.method !== "GET") {
+    return;
   }
-  // estático: cache com revalidação em segundo plano
-  ev.respondWith(
-    caches.open(VERSAO).then(async (cache) => {
-      const em_cache = await cache.match(ev.request);
-      const busca = fetch(ev.request).then((res) => {
-        if (res.ok) cache.put(ev.request, res.clone());
-        return res;
-      }).catch(() => em_cache);
-      return em_cache || busca;
-    })
-  );
+
+  ev.respondWith((async () => {
+    const cache = await caches.open(VERSAO);
+    try {
+      // Sempre tenta a versão atual do servidor primeiro. Isso é especialmente
+      // importante no CasaOS/ZimaOS, onde os arquivos do bind mount podem ser
+      // atualizados sem trocar a URL do painel.
+      const resposta = await fetch(ev.request, { cache: "no-store" });
+      if (resposta.ok) await cache.put(ev.request, resposta.clone());
+      return resposta;
+    } catch (_) {
+      const emCache = await cache.match(ev.request);
+      if (emCache) return emCache;
+
+      // Navegação offline pode cair no último index conhecido.
+      if (ev.request.mode === "navigate") {
+        const index = await cache.match("/index.html");
+        if (index) return index;
+      }
+      throw _;
+    }
+  })());
 });
