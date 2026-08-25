@@ -21,11 +21,34 @@ jobs:
 
       - name: Sintaxe (py_compile em todos os módulos)
         run: |
-          python -m py_compile painel/painel.py painel/store.py \
+          python -m py_compile painel/painel.py painel/launcher.py painel/store.py \
             painel/players.py painel/settings_catalog.py \
             painel/settings_ini.py painel/settings_editor.py \
             painel/scheduler.py painel/backups_manager.py \
             painel/health.py painel/notifications.py painel/users.py
+
+      - name: Launcher — leitura segura do AdminPassword do INI
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+          import tempfile
+
+          spec = importlib.util.spec_from_file_location("launcher", "painel/launcher.py")
+          launcher = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(launcher)
+
+          fd, path = tempfile.mkstemp(text=True)
+          try:
+              with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                  fh.write('[/Script/Pal.PalGameWorldSettings]\nOptionSettings=(AdminPassword="segredo-ci",RESTAPIEnabled=True)\n')
+              assert launcher._ler_admin_password_do_ini(path) == "segredo-ci"
+          finally:
+              os.unlink(path)
+          PY
+
+      - name: Docker Compose — validação do YAML
+        run: docker compose -f "Palworld Server.yml" config > /dev/null
 
       - name: Testes automatizados (stdlib puro)
         run: python tests/test_painel.py
@@ -47,6 +70,7 @@ jobs:
       - name: Frontend — sintaxe JS e presença dos artefatos PWA
         run: |
           node --check painel/static/app.js
+          node --check painel/static/sw.js
           test -f painel/static/manifest.webmanifest
           test -f painel/static/sw.js
           test -f painel/static/status.html
