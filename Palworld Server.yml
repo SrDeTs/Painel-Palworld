@@ -82,7 +82,6 @@ services:
     image: thijsvanloef/palworld-server-docker:latest
     labels:
       icon: https://docs.palworldgame.com/img/logo.jpg
-    network_mode: bridge
     ports:
       - target: 8211
         published: "8211"
