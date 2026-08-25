@@ -26,6 +26,7 @@ jobs:
             painel/settings_ini.py painel/settings_editor.py \
             painel/scheduler.py painel/backups_manager.py \
             painel/health.py painel/notifications.py painel/users.py
+          bash -n painel/palworld_entrypoint.sh
 
       - name: Launcher — leitura segura do AdminPassword do INI
         run: |
@@ -48,7 +49,9 @@ jobs:
           PY
 
       - name: Docker Compose — validação do YAML
-        run: docker compose -f "Palworld Server.yml" config > /dev/null
+        run: |
+          docker compose -f "Palworld Server.yml" config > /dev/null
+          grep -q "/palworld/painel/palworld_entrypoint.sh" "Palworld Server.yml"
 
       - name: Testes automatizados (stdlib puro)
         run: python tests/test_painel.py
