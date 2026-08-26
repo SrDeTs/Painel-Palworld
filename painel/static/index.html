@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Painel de administração do servidor dedicado de Palworld">
-<meta name="theme-color" content="#0a0d12">
+<meta name="theme-color" content="#07111f">
 <title>Painel Palworld</title>
 <link rel="icon" href="/logo.jpg">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -116,9 +116,19 @@
       <span id="srv-version" class="pill hidden"></span>
       <span id="user-badge" class="pill hidden"></span>
     </div>
-    <button id="btn-logout" class="btn ghost small">
-      <svg class="icon"><use href="#i-logout"/></svg> Sair
-    </button>
+    <div class="topbar-actions">
+      <button id="theme-toggle" class="theme-toggle" type="button"
+              aria-label="Ativar tema claro" aria-pressed="false">
+        <span class="theme-toggle-track" aria-hidden="true">
+          <span class="theme-stars">✦</span>
+          <span class="theme-orb"></span>
+        </span>
+        <span id="theme-label">Modo noite</span>
+      </button>
+      <button id="btn-logout" class="btn ghost small">
+        <svg class="icon"><use href="#i-logout"/></svg> Sair
+      </button>
+    </div>
   </header>
 
   <!-- faixa de status -->
@@ -539,7 +549,7 @@
           <input type="number" id="rec-cooldown" min="5" max="1440" value="60">
           <label class="field-label" for="rec-max">Máx. tentativas por dia</label>
           <input type="number" id="rec-max" min="1" max="20" value="3">
-          <div class="row-end"><button id="rec-salvar" class="btn primary small">Salvar recuperação</button></div>
+          <div class="row-end"><button id="rec-salvar" data-admin-action class="btn primary small">Salvar recuperação</button></div>
           <hr style="border:none;border-top:1px solid var(--border);margin:0.9rem 0">
           <h2 style="font-size:.95rem">Modo manutenção</h2>
           <label class="chk-inline"><input type="checkbox" id="mnt-ativo">
@@ -547,7 +557,7 @@
           <input type="text" id="mnt-motivo" maxlength="300"
                  placeholder="Motivo exibido nas respostas (ex.: restaurando backup)"
                  style="width:100%;margin-top:0.4rem">
-          <div class="row-end"><button id="mnt-salvar" class="btn primary small">Salvar manutenção</button></div>
+          <div class="row-end"><button id="mnt-salvar" data-admin-action class="btn primary small">Salvar manutenção</button></div>
         </div>
 
         <div class="card">
@@ -555,8 +565,8 @@
           <p class="muted small">Discord (webhook), Telegram (bot) ou webhook
              genérico. Segredos salvos ficam mascarados na interface.</p>
           <div id="notif-canal-lista"></div>
-          <button id="notif-add" class="btn ghost small">+ Adicionar canal</button>
-          <div class="row-end"><button id="notif-salvar" class="btn primary small">Salvar notificações</button></div>
+          <button id="notif-add" data-admin-action class="btn ghost small">+ Adicionar canal</button>
+          <div class="row-end"><button id="notif-salvar" data-admin-action class="btn primary small">Salvar notificações</button></div>
         </div>
       </div>
     </section>

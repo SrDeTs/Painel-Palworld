@@ -766,6 +766,16 @@ class PanelHandler(BaseHTTPRequestHandler):
             "error": f"Sem permissão ({permissao}) para esta ação."})
         return False
 
+    def _requer_alguma(self, *permissoes: str) -> bool:
+        """Autoriza se o usuário tiver ao menos uma permissão, emitindo um único 403."""
+        usuario = getattr(self, "_usuario", None)
+        if any(users_mod.tem_permissao(usuario, p) for p in permissoes):
+            return True
+        self._send_json(403, {
+            "error": "Sem permissão para esta ação (requer: "
+                     + " ou ".join(permissoes) + ")."})
+        return False
+
     # ---------- API versionada /api/v1 + Prometheus ----------
 
     def _chave_ou_sessao(self):
@@ -1151,6 +1161,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                     "warn", "auth", f"Usuário #{uid} excluído")
                 return self._send_json(200, {"ok": True})
             if len(partes) == 3 and partes[1] == "keys":
+                if not self._requer("USER_MANAGE"):
+                    return
                 try:
                     kid = int(partes[2])
                 except ValueError:
@@ -1158,6 +1170,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return self._send_json(
                     200, {"ok": users_mod.revogar_api_key(kid)})
             if len(partes) == 3 and partes[1] == "scheduler":
+                if not self._requer_alguma("SERVER_RESTART", "SETTINGS_EDIT"):
+                    return
                 try:
                     job_id = int(partes[2])
                 except ValueError:
@@ -1464,7 +1478,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
             ultimo_id = 0
             ultimo_ping = time.time()
+            ultima_validacao = 0.0
             while True:
+                agora = time.time()
+                if agora - ultima_validacao >= 10:
+                    if not _valid_session(token_sse):
+                        break
+                    ultima_validacao = agora
                 eventos = store_mod.consultar_eventos(
                     limite=50, desde_ts=None)
                 novos = [e for e in reversed(eventos) if e["id"] > ultimo_id]
@@ -1819,8 +1839,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"ok": True, "job": job})
 
             if path.startswith("/api/scheduler/"):
-                if not (self._requer("SERVER_RESTART") or
-                        self._requer("SETTINGS_EDIT")):
+                if not self._requer_alguma("SERVER_RESTART", "SETTINGS_EDIT"):
                     return
                 partes = path.split("/")
                 try:
@@ -1894,25 +1913,6 @@ class PanelHandler(BaseHTTPRequestHandler):
                 except OSError as e:
                     return self._send_json(500,
                         {"error": f"falha de disco ao operar o backup: {e}"})
-
-            if path.startswith("/api/scheduler/"):
-                if not self._autenticado():
-                    return
-                partes = path.split("/")  # /api/scheduler/{id}[/run]
-                try:
-                    job_id = int(partes[3])
-                except (IndexError, ValueError):
-                    return self._send_json(400, {"error": "id inválido."})
-                if len(partes) > 4 and partes[4] == "run":
-                    ok, resultado = scheduler_mod.executar_agora(job_id)
-                    return self._send_json(200 if ok else 400,
-                                           {"ok": ok,
-                                            "resultado": str(resultado)})
-                if len(partes) == 4 and self.command == "DELETE":
-                    return self._send_json(
-                        200, {"ok": scheduler_mod.excluir(job_id)})
-                return self._send_json(405,
-                                       {"error": "método não suportado"})
 
             if path == "/api/health/corrigir":
                 if not self._requer("SETTINGS_EDIT"):

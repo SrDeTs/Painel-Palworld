@@ -4,8 +4,8 @@
   "description": "Painel de administração do servidor dedicado de Palworld",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0d12",
-  "theme_color": "#0a0d12",
+  "background_color": "#07111f",
+  "theme_color": "#07111f",
   "icons": [
     {
       "src": "/logo.jpg",

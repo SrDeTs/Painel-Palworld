@@ -9,6 +9,117 @@ let lastPlayers = [];
 let lastStatus = null;
 let usuarioAtual = null;   // {nome, papel} — preenchido no boot via /api/me
 
+let themeLocked = false;
+let csRetryTimer = null;
+
+/* ================= tema Palworld / transição portal ================= */
+
+function temaAtual() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+function aplicarTema(theme, persistir = true) {
+  const next = theme === "light" ? "light" : "dark";
+  const html = document.documentElement;
+  html.dataset.theme = next;
+  html.classList.toggle("light", next === "light");
+  html.classList.toggle("dark", next === "dark");
+  if (persistir) localStorage.setItem("pp_theme", next);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = next === "dark" ? "#07111f" : "#eaf8fb";
+  const label = $("#theme-label");
+  if (label) label.textContent = next === "dark" ? "Modo noite" : "Modo dia";
+  const toggle = $("#theme-toggle");
+  if (toggle) {
+    toggle.setAttribute("aria-pressed", String(next === "light"));
+    toggle.setAttribute("aria-label", next === "dark"
+      ? "Ativar tema claro" : "Ativar tema escuro");
+  }
+}
+
+function pontoDoElemento(source) {
+  const rect = source.getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+function raioMaximo(x, y) {
+  return Math.hypot(
+    Math.max(x, innerWidth - x),
+    Math.max(y, innerHeight - y),
+  );
+}
+
+function palParticles(x, y) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const css = getComputedStyle(document.documentElement);
+  const cores = ["--pal-cyan", "--pal-sky", "--pal-gold", "--pal-coral"]
+    .map((v) => css.getPropertyValue(v).trim()).filter(Boolean);
+  for (let i = 0; i < 18; i++) {
+    const p = document.createElement("span");
+    p.className = "portal-particle";
+    p.style.left = `${x}px`;
+    p.style.top = `${y}px`;
+    p.style.background = cores[i % cores.length] || "#69d9ee";
+    document.body.appendChild(p);
+    const a = (Math.PI * 2 * i) / 18 + Math.random() * 0.24;
+    const d = 34 + Math.random() * 86;
+    p.animate([
+      { transform: "translate(-50%, -50%) scale(.35)", opacity: .95 },
+      { transform: `translate(calc(-50% + ${Math.cos(a) * d}px), calc(-50% + ${Math.sin(a) * d}px)) scale(${.25 + Math.random()})`, opacity: 0 },
+    ], { duration: 620 + Math.random() * 300, easing: "cubic-bezier(.2,.8,.2,1)" })
+      .finished.finally(() => p.remove());
+  }
+}
+
+function fallbackPortal(x, y, nextTheme) {
+  const ripple = document.createElement("div");
+  ripple.className = "portal-ripple";
+  const size = raioMaximo(x, y) * 2.25;
+  Object.assign(ripple.style, {
+    left: `${x}px`, top: `${y}px`, width: `${size}px`, height: `${size}px`,
+  });
+  document.body.appendChild(ripple);
+  const anim = ripple.animate([
+    { transform: "translate(-50%, -50%) scale(0)", opacity: 1 },
+    { transform: "translate(-50%, -50%) scale(1)", opacity: 1, offset: .72 },
+    { transform: "translate(-50%, -50%) scale(1.04)", opacity: 0 },
+  ], { duration: 760, easing: "cubic-bezier(.19,1,.22,1)" });
+  setTimeout(() => aplicarTema(nextTheme), 150);
+  anim.finished.finally(() => ripple.remove());
+}
+
+async function alternarTema(source) {
+  if (themeLocked) return;
+  themeLocked = true;
+  const { x, y } = pontoDoElemento(source);
+  const nextTheme = temaAtual() === "dark" ? "light" : "dark";
+  palParticles(x, y);
+  const reduzido = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (document.startViewTransition && !reduzido) {
+    try {
+      const radius = raioMaximo(x, y);
+      const transition = document.startViewTransition(() => aplicarTema(nextTheme));
+      await transition.ready;
+      document.documentElement.animate({
+        clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`],
+      }, {
+        duration: 720,
+        easing: "cubic-bezier(.19,1,.22,1)",
+        pseudoElement: "::view-transition-new(root)",
+      });
+    } catch (_) {
+      fallbackPortal(x, y, nextTheme);
+    }
+  } else {
+    fallbackPortal(x, y, nextTheme);
+  }
+  setTimeout(() => { themeLocked = false; }, 820);
+}
+
+const temaSalvo = localStorage.getItem("pp_theme");
+aplicarTema(temaSalvo || "dark", false);
+
 const ABAS_POR_PAPEL = {
   admin: null,  // todas
   moderador: ["overview", "players", "control", "console", "backups",
@@ -17,12 +128,17 @@ const ABAS_POR_PAPEL = {
 };
 
 function aplicarPermissoesUI() {
-  const papel = usuarioAtual?.papel || "admin";
-  const permitidas = ABAS_POR_PAPEL[papel];
+  const papel = usuarioAtual?.papel || "viewer";
+  const permitidas = Object.prototype.hasOwnProperty.call(ABAS_POR_PAPEL, papel)
+    ? ABAS_POR_PAPEL[papel] : [];
   document.querySelectorAll(".tabs button[data-tab]").forEach((b) => {
-    if (permitidas === null || permitidas.includes(b.dataset.tab)) return;
-    b.classList.add("hidden");
-    b.disabled = true;
+    const permitido = permitidas === null || permitidas.includes(b.dataset.tab);
+    b.classList.toggle("hidden", !permitido);
+    b.disabled = !permitido;
+  });
+  document.querySelectorAll("[data-admin-action]").forEach((el) => {
+    el.classList.toggle("hidden", papel !== "admin");
+    if ("disabled" in el) el.disabled = papel !== "admin";
   });
   const badge = $("#user-badge");
   badge.textContent = `${usuarioAtual?.nome || "admin"} · ${papel}`;
@@ -35,7 +151,7 @@ async function carregarUsuario() {
     usuarioAtual = { nome: me.usuario?.usuario || "admin",
                      papel: me.usuario?.papel || "admin" };
   } catch (_) {
-    usuarioAtual = { nome: "admin", papel: "admin" };
+    usuarioAtual = { nome: "sessão", papel: "viewer" };
   }
   aplicarPermissoesUI();
 }
@@ -88,6 +204,7 @@ function fmtUptime(seconds) {
 
 function showLogin(msg = "") {
   stopPolling();
+  csPararTempoReal();
   $("#app-view").classList.add("hidden");
   $("#login-view").classList.remove("hidden");
   $("#login-error").textContent = msg;
@@ -208,7 +325,7 @@ document.querySelectorAll(".tabs button").forEach((btn) => {
 /* setas esquerda/direita navegam entre as abas */
 $(".tabs").addEventListener("keydown", (ev) => {
   if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
-  const abas = [...document.querySelectorAll(".tabs button")];
+  const abas = [...document.querySelectorAll(".tabs button:not(.hidden):not(:disabled)")];
   const atual = abas.findIndex((b) => b.classList.contains("active"));
   const delta = ev.key === "ArrowRight" ? 1 : -1;
   const proxima = abas[(atual + delta + abas.length) % abas.length];
@@ -293,6 +410,10 @@ function preencherCartoesDashboard(dash) {
     ["db-players", "db-fps", "db-frame", "db-uptime", "db-bases", "db-day", "db-ver"]
       .forEach((id) => { $("#" + id).textContent = "—"; });
     $("#db-cap").textContent = "offline";
+    $("#srv-name2").textContent = "—";
+    $("#wd-bases2").textContent = "—";
+    $("#wd-days2").textContent = "—";
+    $("#wd-ver2").textContent = "—";
   } else {
     const cur = pick(met, "currentplayernum", "currentPlayerNum") ?? "?";
     const max = pick(met, "maxplayernum", "maxPlayerNum") ?? "?";
@@ -303,11 +424,14 @@ function preencherCartoesDashboard(dash) {
     $("#db-frame").textContent = ft != null ? Number(ft).toFixed(1) : "—";
     const up = pick(met, "uptime", "uptimeseconds", "uptimeSeconds");
     $("#db-uptime").textContent = up != null ? fmtUptimeLong(up) : "—";
-    $("#db-bases").textContent = pick(met, "basecampnum", "baseCampCount") ?? "—";
-    $("#db-day").textContent = pick(met, "days") != null
-      ? `dia ${pick(met, "days")}` : "—";
+    const bases = pick(met, "basecampnum", "baseCampCount");
+    const dia = pick(met, "days", "worldDay");
+    $("#db-bases").textContent = bases ?? "—";
+    $("#db-day").textContent = dia != null ? `dia ${dia}` : "—";
     $("#db-ver").textContent = pick(info, "version") || "—";
     $("#srv-name2").textContent = pick(info, "servername", "name") || "(sem nome)";
+    $("#wd-bases2").textContent = bases ?? "—";
+    $("#wd-days2").textContent = dia != null ? `dia ${dia}` : "—";
     $("#wd-ver2").textContent = pick(info, "version") || "—";
   }
 
@@ -552,14 +676,6 @@ function pick(obj, ...keys) {
   return undefined;
 }
 
-function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(() => {
-    if (document.hidden) return;
-    pollStatus();
-    if ($("#tab-players").classList.contains("active")) loadPlayers();
-  }, 5000);
-}
 function stopPolling() {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = null;
@@ -896,7 +1012,7 @@ function renderBackups(data) {
       <td class="mono">${fmtBytes(b.bytes)}</td>
       <td class="mono">${fmtDataHora(b.modificado)}</td>
       <td class="actions">
-        <button class="btn ghost small" data-bk="${esc(b.nome)}">
+        <button class="btn ghost small" data-bk-download="${esc(b.nome)}">
           <svg class="icon"><use href="#i-save"/></svg> Baixar
         </button>
         <button class="btn warn small" data-bk-acao="restaurar" data-bk="${esc(b.nome)}">
@@ -937,8 +1053,8 @@ async function baixarBackup(nome, btn) {
 }
 
 $("#backups-tbody").addEventListener("click", (ev) => {
-  const btn = ev.target.closest("button[data-bk]");
-  if (btn) baixarBackup(btn.dataset.bk, btn);
+  const btn = ev.target.closest("button[data-bk-download]");
+  if (btn) baixarBackup(btn.dataset.bkDownload, btn);
 });
 
 $("#bk-refresh").addEventListener("click", loadBackups);
@@ -1199,8 +1315,13 @@ $("#agenda-tbody").addEventListener("click", async (ev) => {
     });
     if (!ok) return;
     try {
-      await fetch("/api/scheduler/" + delBtn.dataset.agDel, {
+      const res = await fetch("/api/scheduler/" + delBtn.dataset.agDel, {
         method: "DELETE", headers: { "X-Panel-Token": token } });
+      if (res.status === 401) { showLogin("Sessão expirada — entre novamente."); return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erro HTTP ${res.status}`);
+      }
       toast("Tarefa excluída.");
       loadAgenda();
     } catch (e) { toast(e.message, "err"); }
@@ -1242,7 +1363,7 @@ async function enviarAnuncio(msg, botao) {
 $("#ov-send").addEventListener("click", (ev) => enviarAnuncio($("#ov-msg").value, ev.target));
 $("#ct-send").addEventListener("click", (ev) => enviarAnuncio($("#ct-msg-input").value, ev.target));
 
-document.querySelectorAll(".chip").forEach((chip) => {
+document.querySelectorAll(".chip[data-msg]").forEach((chip) => {
   chip.addEventListener("click", () => enviarAnuncio(chip.dataset.msg));
 });
 
@@ -1314,8 +1435,6 @@ $("#ct-emergency").addEventListener("click", async () => {
     toast(`Falhou: ${e.message}`, "err", 7000);
   }
 });
-
-$("#st-refresh").addEventListener("click", loadSettings);
 
 /* ================= modal genérico ================= */
 
@@ -1674,6 +1793,10 @@ $("#se-export").addEventListener("click", async (ev) => {
   try {
     const res = await fetch("/api/settings/export", { headers: { "X-Panel-Token": token } });
     if (res.status === 401) { showLogin("Sessão expirada — entre novamente."); return; }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1848,9 +1971,18 @@ async function csCarregarHistorico() {
   } catch (_) { /* sem histórico — segue */ }
 }
 
-function csIniciarSSE() {
+function csPararTempoReal() {
   try { if (csFonte) csFonte.close(); } catch (_) {}
+  csFonte = null;
   clearInterval(csPollTimer);
+  csPollTimer = null;
+  clearTimeout(csRetryTimer);
+  csRetryTimer = null;
+}
+
+function csIniciarSSE() {
+  csPararTempoReal();
+  if (!token || $("#app-view").classList.contains("hidden")) return;
   $("#cs-modo").textContent = "ao vivo";
   $("#cs-modo").className = "pill pill-on small";
   const fonte = new EventSource("/api/stream?token=" + encodeURIComponent(token));
@@ -1869,6 +2001,7 @@ function csIniciarSSE() {
         for (const ev of dados.eventos || []) csAdicionar(ev);
       } catch (_) { /* segue tentando */ }
     }, 3000);
+    csRetryTimer = setTimeout(() => csIniciarSSE(), 15000);
   };
 }
 
@@ -1879,9 +2012,13 @@ $("#cs-pause").addEventListener("click", () => {
   if (!csPausado && csPerdidasEnquantoPausado > 0) {
     toast(`${csPerdidasEnquantoPausado} linha(s) recebidas enquanto pausado.`);
     csPerdidasEnquantoPausado = 0;
+    csReaplicarFiltros();
   }
 });
-$("#cs-clear").addEventListener("click", () => { $("#cs-log").innerHTML = ""; });
+$("#cs-clear").addEventListener("click", () => {
+  csLinhas = [];
+  $("#cs-log").innerHTML = "";
+});
 $("#cs-copy").addEventListener("click", async () => {
   const texto = [...document.querySelectorAll("#cs-log .cs-linha")]
     .map((l) => l.textContent).join("\n");
@@ -1941,7 +2078,7 @@ async function loadSaude() {
         ${i.sugestao ? `<small class="muted">${esc(i.sugestao)}</small>` : ""}
       </div>
       <div class="actions">
-        ${i.corrigivel
+        ${i.corrigivel && usuarioAtual?.papel === "admin"
           ? `<button class="btn ghost small" data-corrigir="${i.acao.tipo}">Corrigir</button>`
           : ""}
       </div>
@@ -2093,21 +2230,22 @@ $("#notif-canal-lista").addEventListener("click", async (ev) => {
   }
 });
 $("#notif-canal-lista").addEventListener("change", (ev) => {
+  const eventoEl = ev.target.closest("[data-nc-ev]");
+  if (eventoEl) {
+    const idx = parseInt(eventoEl.dataset.ncEv, 10);
+    if (!notifCanais[idx]) return;
+    const evento = eventoEl.dataset.ev;
+    const lista = notifCanais[idx].eventos || (notifCanais[idx].eventos = []);
+    if (eventoEl.checked && !lista.includes(evento)) lista.push(evento);
+    if (!eventoEl.checked) notifCanais[idx].eventos = lista.filter((x) => x !== evento);
+    return;
+  }
   const alvo = ev.target.closest("[data-nc]");
   if (!alvo) return;
   const idx = parseInt(alvo.dataset.nc, 10);
   if (!notifCanais[idx]) return;
-  if (alvo.dataset.ncEv) {
-    const evento = alvo.dataset.ev;
-    const lista = notifCanais[idx].eventos || (notifCanais[idx].eventos = []);
-    if (alvo.checked && !lista.includes(evento)) lista.push(evento);
-    if (!alvo.checked) notifCanais[idx].eventos =
-      lista.filter((x) => x !== evento);
-    return;
-  }
   const campo = alvo.dataset.campo;
-  notifCanais[idx][campo] = alvo.dataset.tipo === "bool"
-    ? alvo.checked : alvo.value;
+  notifCanais[idx][campo] = alvo.dataset.tipo === "bool" ? alvo.checked : alvo.value;
   if (campo === "tipo") renderNotifCanais();
 });
 
@@ -2207,7 +2345,7 @@ function desenharMapa(entidades) {
   ctx.fillText(`X ${minX}…${maxX}`, pad, h - 8);
   ctx.textAlign = "right";
   ctx.fillText(`Z ${minZ}…${maxZ}`, w - pad, h - 8);
-  canvas.classList.remove("hidden");
+  cv.classList.remove("hidden");
   $("#mapa-legenda").classList.remove("hidden");
 }
 $("#mp-refresh").addEventListener("click", loadMapa);
@@ -2314,8 +2452,14 @@ $("#usuarios-tbody").addEventListener("click", async (ev) => {
     });
     if (!ok) return;
     try {
-      await fetch("/api/usuarios/" + delBtn.dataset.usrDel, {
+      const res = await fetch("/api/usuarios/" + delBtn.dataset.usrDel, {
         method: "DELETE", headers: { "X-Panel-Token": token } });
+      if (res.status === 401) { showLogin("Sessão expirada — entre novamente."); return; }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Erro HTTP ${res.status}`);
+      }
+      toast("Usuário excluído.");
       loadUsuarios();
     } catch (e) { toast(e.message, "err"); }
   }
@@ -2367,6 +2511,9 @@ $("#sess-revogar-todas").addEventListener("click", async () => {
   } catch (e) { toast(e.message, "err"); }
 });
 
+const themeToggle = $("#theme-toggle");
+if (themeToggle) themeToggle.addEventListener("click", () => alternarTema(themeToggle));
+
 /* PWA: registra o service worker (silencioso onde não suportado/http LAN) */
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -2381,7 +2528,7 @@ const COMANDOS = [
   { rotulo: "Ir para: Console", aba: "console" },
   { rotulo: "Ir para: Backups", aba: "backups", perm: ["admin", "moderador"] },
   { rotulo: "Ir para: Agenda", aba: "agenda", perm: ["admin", "moderador"] },
-  { rotulo: "Ir para: Configurações", aba: "settings", perm: ["admin", "moderador"] },
+  { rotulo: "Ir para: Configurações", aba: "settings", perm: ["admin"] },
   { rotulo: "Ir para: Saúde e diagnóstico", aba: "saude", perm: ["admin", "moderador"] },
   { rotulo: "Ação: Salvar mundo agora", exec: () => api("save", { method: "POST" }).then(() => toast("Mundo salvo! 💾")), perm: ["admin", "moderador"] },
   { rotulo: "Ação: Criar backup do mundo", exec: () => api("backups/criar", { method: "POST" }).then((r) => toast(`Backup criado: ${r.nome}`)), perm: ["admin", "moderador"] },
