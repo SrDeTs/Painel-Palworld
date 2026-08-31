@@ -3,7 +3,7 @@
    API e SSE nunca passam pelo cache. */
 "use strict";
 
-const VERSAO = "pp-v5";
+const VERSAO = "pp-v10";
 const CASCO = [
   "/index.html", "/app.js", "/style.css", "/logo.jpg",
   "/manifest.webmanifest",

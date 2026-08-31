@@ -78,6 +78,7 @@ services:
       - COMMUNITY=false
       - CROSSPLAY_PLATFORMS=(Steam,Xbox)
       - PGID=1000
+      - PANEL_DISABLE_WORLD_OPTION=true
       - PLAYERS=4
       - PORT=8211
       - PUID=1000

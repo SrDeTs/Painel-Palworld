@@ -4,13 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Painel de administração do servidor dedicado de Palworld">
-<meta name="theme-color" content="#07111f">
+<meta name="theme-color" content="#0d100f">
 <title>Painel Palworld</title>
 <link rel="icon" href="/logo.jpg">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+
+<a class="skip-link" href="#main-content">Pular para o conteúdo</a>
 
 <!-- sprite de ícones (traço 1.8, estilo próprio) -->
 <svg width="0" height="0" class="sprite" aria-hidden="true">
@@ -109,7 +111,10 @@
   <header class="topbar">
     <div class="brand">
       <span class="brand-mark"><img src="/logo.jpg" alt=""></span>
-      Painel Palworld
+      <span class="brand-copy">
+        <strong>Painel Palworld</strong>
+        <small>Central do servidor</small>
+      </span>
     </div>
     <div class="server-id">
       <span id="srv-name">—</span>
@@ -117,6 +122,10 @@
       <span id="user-badge" class="pill hidden"></span>
     </div>
     <div class="topbar-actions">
+      <button id="btn-cmdk" class="command-button" type="button"
+              aria-label="Abrir busca global">
+        <span>Buscar ou executar</span><kbd>Ctrl K</kbd>
+      </button>
       <button id="theme-toggle" class="theme-toggle" type="button"
               aria-label="Ativar tema claro" aria-pressed="false">
         <span class="theme-toggle-track" aria-hidden="true">
@@ -155,23 +164,39 @@
     <button data-tab="settings" role="tab" aria-selected="false"><svg class="icon"><use href="#i-sliders"/></svg>Configurações</button>
   </nav>
 
-  <main>
+  <main id="main-content">
 
     <!-- ========= VISÃO GERAL (dashboard) ========= -->
     <section id="tab-overview" class="tab active" role="tabpanel" tabindex="0">
 
-      <div class="dash-cards">
-        <div class="card mini"><span class="mini-label">Jogadores</span><b id="db-players">—</b><small id="db-cap" class="muted mono">—</small></div>
-        <div class="card mini"><span class="mini-label">FPS</span><b id="db-fps">—</b><small id="db-fps-res" class="muted mono">—</small></div>
-        <div class="card mini"><span class="mini-label">Frame time</span><b id="db-frame">—</b><small class="muted mono">ms</small></div>
-        <div class="card mini"><span class="mini-label">Ligado há</span><b id="db-uptime">—</b></div>
-        <div class="card mini"><span class="mini-label">Bases</span><b id="db-bases">—</b></div>
-        <div class="card mini"><span class="mini-label">Dia do mundo</span><b id="db-day">—</b></div>
-        <div class="card mini"><span class="mini-label">Versão</span><b id="db-ver" class="mono small">—</b></div>
-        <div class="card mini"><span class="mini-label">Disco livre</span><b id="db-disk">—</b></div>
+      <div class="page-intro">
+        <div>
+          <span class="eyebrow">Comando do servidor</span>
+          <h1>Visão geral</h1>
+          <p>Acompanhe o mundo, a atividade dos jogadores e o desempenho em tempo real.</p>
+        </div>
+        <button class="refresh-button" type="button" data-action="refresh-all">
+          <svg class="icon"><use href="#i-refresh"/></svg>
+          Atualizar dados
+        </button>
       </div>
 
-      <div class="grid-2">
+      <div class="dashboard-metrics">
+        <div class="dash-cards">
+          <div class="card mini metric-featured"><span class="mini-label">Jogadores online</span><b id="db-players">—</b><small id="db-cap" class="muted mono">—</small></div>
+          <div class="card mini"><span class="mini-label">Desempenho</span><b><span id="db-fps">—</span> <em>FPS</em></b><small id="db-fps-res" class="muted mono">—</small></div>
+          <div class="card mini"><span class="mini-label">Tempo de frame</span><b><span id="db-frame">—</span> <em>ms</em></b></div>
+          <div class="card mini"><span class="mini-label">Sessão atual</span><b id="db-uptime">—</b><small class="muted">tempo ligado</small></div>
+        </div>
+        <div class="card meta-strip" aria-label="Detalhes do mundo e armazenamento">
+          <div class="meta-item"><span>Bases</span><b id="db-bases">—</b></div>
+          <div class="meta-item"><span>Dia do mundo</span><b id="db-day">—</b></div>
+          <div class="meta-item"><span>Versão</span><b id="db-ver" class="mono small">—</b></div>
+          <div class="meta-item"><span>Disco livre</span><b id="db-disk">—</b></div>
+        </div>
+      </div>
+
+      <div class="grid-2 dashboard-main">
         <div class="card chart-card">
           <div class="card-head">
             <h2><svg class="icon"><use href="#i-gauge"/></svg>Histórico</h2>
@@ -192,7 +217,7 @@
           <p id="db-resumo" class="muted small mono">Sem dados históricos ainda.</p>
         </div>
 
-        <div class="card">
+        <div class="card announcement-card">
           <h2><svg class="icon"><use href="#i-wave"/></svg>Anunciar aos jogadores</h2>
           <p>Mensagem no chat do jogo para todos que estão online.</p>
           <textarea id="ov-msg" rows="3" maxlength="500"
@@ -204,7 +229,7 @@
         </div>
       </div>
 
-      <div class="grid-2">
+      <div class="grid-2 dashboard-secondary">
         <div class="card">
           <h2><svg class="icon"><use href="#i-globe"/></svg>Mundo &amp; servidor</h2>
           <div class="world-grid">
@@ -541,23 +566,33 @@
              Cooldown e limite diário impedem loop infinito.</p>
           <label class="chk-inline"><input type="checkbox" id="rec-habilitado">
             Habilitar auto-recuperação</label>
-          <label class="field-label" for="rec-fps">FPS mínimo</label>
-          <input type="number" id="rec-fps" min="1" max="60" value="15">
-          <label class="field-label" for="rec-janela">Janela (minutos abaixo do mínimo)</label>
-          <input type="number" id="rec-janela" min="2" max="240" value="10">
-          <label class="field-label" for="rec-cooldown">Cooldown entre tentativas (min)</label>
-          <input type="number" id="rec-cooldown" min="5" max="1440" value="60">
-          <label class="field-label" for="rec-max">Máx. tentativas por dia</label>
-          <input type="number" id="rec-max" min="1" max="20" value="3">
+          <div class="recovery-grid">
+            <div class="form-field">
+              <label class="field-label" for="rec-fps">FPS mínimo</label>
+              <input type="number" id="rec-fps" min="1" max="60" value="15">
+            </div>
+            <div class="form-field">
+              <label class="field-label" for="rec-janela">Janela abaixo do mínimo</label>
+              <div class="input-with-unit"><input type="number" id="rec-janela" min="2" max="240" value="10"><span>min</span></div>
+            </div>
+            <div class="form-field">
+              <label class="field-label" for="rec-cooldown">Intervalo entre tentativas</label>
+              <div class="input-with-unit"><input type="number" id="rec-cooldown" min="5" max="1440" value="60"><span>min</span></div>
+            </div>
+            <div class="form-field">
+              <label class="field-label" for="rec-max">Limite diário</label>
+              <div class="input-with-unit"><input type="number" id="rec-max" min="1" max="20" value="3"><span>vezes</span></div>
+            </div>
+          </div>
           <div class="row-end"><button id="rec-salvar" data-admin-action class="btn primary small">Salvar recuperação</button></div>
-          <hr style="border:none;border-top:1px solid var(--border);margin:0.9rem 0">
-          <h2 style="font-size:.95rem">Modo manutenção</h2>
-          <label class="chk-inline"><input type="checkbox" id="mnt-ativo">
-            Bloquear ações administrativas do painel</label>
-          <input type="text" id="mnt-motivo" maxlength="300"
-                 placeholder="Motivo exibido nas respostas (ex.: restaurando backup)"
-                 style="width:100%;margin-top:0.4rem">
-          <div class="row-end"><button id="mnt-salvar" data-admin-action class="btn primary small">Salvar manutenção</button></div>
+          <div class="maintenance-block">
+            <h2>Modo manutenção</h2>
+            <label class="chk-inline"><input type="checkbox" id="mnt-ativo">
+              Bloquear ações administrativas do painel</label>
+            <input type="text" id="mnt-motivo" maxlength="300"
+                   placeholder="Motivo exibido nas respostas (ex.: restaurando backup)">
+            <div class="row-end"><button id="mnt-salvar" data-admin-action class="btn ghost small">Salvar manutenção</button></div>
+          </div>
         </div>
 
         <div class="card">
@@ -565,8 +600,10 @@
           <p class="muted small">Discord (webhook), Telegram (bot) ou webhook
              genérico. Segredos salvos ficam mascarados na interface.</p>
           <div id="notif-canal-lista"></div>
-          <button id="notif-add" data-admin-action class="btn ghost small">+ Adicionar canal</button>
-          <div class="row-end"><button id="notif-salvar" data-admin-action class="btn primary small">Salvar notificações</button></div>
+          <div class="notification-actions">
+            <button id="notif-add" data-admin-action class="btn ghost small">+ Adicionar canal</button>
+            <button id="notif-salvar" data-admin-action class="btn primary small">Salvar notificações</button>
+          </div>
         </div>
       </div>
     </section>
@@ -589,10 +626,11 @@
       </div>
       <div class="card">
         <div class="card-head">
-          <h2>Sessões ativas</h2>
+          <h2>Sessões ativas <span id="sessoes-count" class="pill">—</span></h2>
           <button id="sess-revogar-todas" class="btn danger small">Revogar todas</button>
         </div>
-        <div class="table-wrap">
+        <p class="muted small">Logins que ainda podem acessar o painel. A lista fica ordenada pelos acessos mais recentes.</p>
+        <div class="table-wrap sessions-table-wrap">
           <table>
             <thead><tr><th>Usuário</th><th>Token</th><th>Início</th><th>Expira</th></tr></thead>
             <tbody id="sessoes-tbody"></tbody>
@@ -637,9 +675,6 @@
         <div class="card-head">
           <h2><svg class="icon"><use href="#i-sliders"/></svg>Configurações do servidor</h2>
           <div class="btn-row">
-            <select id="se-preset-sel" class="ghost-select" title="Aplicar preset ao formulário">
-              <option value="">Presets…</option>
-            </select>
             <button id="se-export" class="btn ghost small"><svg class="icon"><use href="#i-save"/></svg> Exportar</button>
             <button id="se-import" class="btn ghost small"><svg class="icon"><use href="#i-archive"/></svg> Importar</button>
             <button id="se-raw" class="btn ghost small"><svg class="icon"><use href="#i-copy"/></svg> Bruto</button>
@@ -652,7 +687,7 @@
         <p id="se-aviso-ini" class="hint warn-hint hidden">
           Edição indisponível: monte o volume do jogo no container do painel e
           defina <code>PALWORLD_INI</code> apontando para o
-          <code>PalWorldSettings.ini</code>. Exibindo valores padrão.
+          <code>PalWorldSettings.ini</code>. Nenhum valor será inventado ou gravado.
         </p>
 
         <div class="se-toolbar">
@@ -661,7 +696,7 @@
             <span id="se-count" class="muted small mono">sem alterações</span>
             <button id="se-cancel" class="btn ghost small" disabled>Descartar</button>
             <button id="se-save" class="btn primary small" disabled>
-              <svg class="icon"><use href="#i-save"/></svg> Salvar…
+              <svg class="icon"><use href="#i-save"/></svg> Salvar
             </button>
           </div>
         </div>
@@ -714,8 +749,8 @@
     </div>
     <p id="se-modal-note" class="warn-hint small"></p>
     <div class="row-end modal-actions">
-      <button id="se-modal-cancel" class="btn ghost">Cancelar</button>
-      <button id="se-modal-ok" class="btn primary">Aplicar</button>
+      <button id="se-modal-cancel" class="btn ghost">Não</button>
+      <button id="se-modal-ok" class="btn primary">Sim</button>
     </div>
   </div>
 </div>
@@ -728,19 +763,6 @@
     <div class="row-end modal-actions">
       <button id="se-raw-copy" class="btn ghost"><svg class="icon"><use href="#i-copy"/></svg> Copiar</button>
       <button id="se-raw-close" class="btn primary">Fechar</button>
-    </div>
-  </div>
-</div>
-
-<!-- ============ MODAL DE PRESETS ============ -->
-<div id="se-preset-backdrop" class="overlay hidden">
-  <div class="card modal modal-wide">
-    <h2>Presets de configuração</h2>
-    <p class="muted">Escolha um preset: as mudanças caem no formulário para
-       você revisar antes de salvar.</p>
-    <div id="se-preset-lista" class="se-preset-lista"></div>
-    <div class="row-end modal-actions">
-      <button id="se-preset-close" class="btn ghost">Fechar</button>
     </div>
   </div>
 </div>

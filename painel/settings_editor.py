@@ -46,12 +46,11 @@ def estado(ini_path: str, api_settings: dict | None) -> dict:
             valores[chave] = da_api[chave]
             fontes[chave] = "api"
         else:
-            valores[chave] = ""
-            fontes[chave] = "padrao"
-        if valores.get(chave) == "":
-            valores[chave] = _mascarar(chave, item["padrao"])
-            if item["padrao"] != "":
-                fontes[chave] = "padrao"
+            # Ausente precisa continuar ausente. O catálogo serve para validar
+            # e oferecer uma escolha explícita de valor padrão; ele nunca deve
+            # fingir que um valor hardcoded veio do arquivo real.
+            valores[chave] = None
+            fontes[chave] = "ausente"
 
     return {
         "configurado": bool(ini_path),
@@ -84,16 +83,6 @@ def validar_mudancas(mudancas: dict, valores_atuais: dict) -> tuple:
     return validas, invalidas
 
 
-def _mesclar_valores(ini_path: str, mudancas_validas: list) -> dict:
-    """Valores atuais do INI (+padrões faltantes p/ chaves novas) + mudanças."""
-    base = si.carregar(ini_path)
-    for item in sc.catalogo():
-        base.setdefault(item["chave"], item["padrao"])
-    for m in mudancas_validas:
-        base[m["chave"]] = m["para"]
-    return base
-
-
 def aplicar(ini_path: str, pasta_backups: str, mudancas: dict,
             valores_exibidos: dict) -> dict:
     """Valida → backup → grava. Devolve resumo p/ confirmar na UI."""
@@ -101,6 +90,10 @@ def aplicar(ini_path: str, pasta_backups: str, mudancas: dict,
         raise PermissionError(
             "Edição indisponível: defina PALWORLD_INI apontando para o "
             "PalWorldSettings.ini (monte o volume do jogo no container do painel).")
+    if not os.path.isfile(ini_path):
+        raise PermissionError(
+            "Edição indisponível: o PalWorldSettings.ini real não foi encontrado. "
+            "O painel não criará um arquivo parcial com valores presumidos.")
     validas, invalidas = validar_mudancas(mudancas, valores_exibidos)
     resultado = {"ok": not invalidas, "invalidas": invalidas,
                  "aplicadas": [], "backup": None,
@@ -112,12 +105,9 @@ def aplicar(ini_path: str, pasta_backups: str, mudancas: dict,
         resultado["ok"] = True
         resultado["aviso"] = "Nenhuma alteração para aplicar."
         return resultado
-    if not os.path.isfile(ini_path):
-        # primeira escrita: garante a pasta do jogo
-        os.makedirs(os.path.dirname(ini_path), exist_ok=True)
     nome_backup = si.criar_backup(ini_path, pasta_backups)
-    valores = _mesclar_valores(ini_path, validas)
-    si.gravar(ini_path, valores)
+    si.aplicar_mudancas(
+        ini_path, {mudanca["chave"]: mudanca["para"] for mudanca in validas})
     resultado["aplicadas"] = validas
     resultado["backup"] = nome_backup
     return resultado
@@ -134,7 +124,7 @@ def exportar(ini_path: str, api_settings: dict | None) -> dict:
     """JSON sem senhas, pronto para importar em outro servidor."""
     est = estado(ini_path, api_settings)
     limpos = {k: v for k, v in est["valores"].items()
-              if k not in sc.chaves_sensíveis()}
+              if k not in sc.chaves_sensíveis() and v is not None}
     return {"_formato": "painel-palworld-config", "_versao": 1,
             "valores": limpos}
 
@@ -159,13 +149,3 @@ def bruto(ini_path: str) -> str | None:
                             if m.group(2) not in ('""', "") else '""'),
                            texto)
     return texto
-
-
-def presets_com_estado(ini_path: str, api_settings) -> list:
-    est = estado(ini_path, api_settings)
-    saida = []
-    for p in sc.presets():
-        validas, invalidas = validar_mudancas(p["mudancas"], est["valores"])
-        saida.append({"nome": p["nome"], "descricao": p["descricao"],
-                      "validas": validas, "invalidas": invalidas})
-    return saida

@@ -42,11 +42,25 @@ def _checar_api(status_combinado_fn):
     snap = status_combinado_fn()
     if snap.get("online"):
         met = snap.get("metrics") or {}
-        fps = met.get("serverfps")
+        met_normalizadas = {str(k).lower(): v for k, v in met.items()}
+        fps = (met_normalizadas.get("serverfps")
+               if met_normalizadas.get("serverfps") is not None
+               else met_normalizadas.get("serverfpsaverage"))
         extra = f" (FPS {fps:.0f})" if isinstance(fps, (int, float)) else ""
         return Verificacao("api", "ok", f"REST API respondendo{extra}"), snap
+
+    erro = str(snap.get("error") or "")
+    erro_lower = erro.lower()
+    if "401" in erro_lower or "rejeitou a senha" in erro_lower:
+        return Verificacao(
+            "api", "erro", "Senha administrativa rejeitada pela API do jogo",
+            "Reinicie os serviços palworld e Painel para sincronizar o segredo "
+            "compartilhado. Se os serviços não usam o mesmo volume, configure "
+            "ADMIN_PASSWORD com o mesmo valor nos dois."), snap
+
+    detalhe = f": {erro}" if erro else ""
     return Verificacao(
-        "api", "erro", "REST API do jogo não responde",
+        "api", "erro", f"REST API do jogo não responde{detalhe}",
         "Verifique se o container 'palworld' está rodando no CasaOS/Docker "
         "(docker ps). O jogo pode estar iniciando — aguarde alguns minutos."), snap
 
@@ -125,6 +139,24 @@ def _checar_save_dir(save_dir: str):
     return Verificacao("save", "ok", "Pasta de saves acessível")
 
 
+def _checar_world_option(save_dir: str):
+    """Detecta configuração binária que prevalece sobre o INI do painel."""
+    if not save_dir or not os.path.isdir(save_dir):
+        return None
+    try:
+        for raiz, _pastas, arquivos in os.walk(save_dir):
+            if "WorldOption.sav" in arquivos:
+                return Verificacao(
+                    "world_option", "critico",
+                    "WorldOption.sav está sobrescrevendo o PalWorldSettings.ini",
+                    "Reinicie o serviço palworld com "
+                    "PANEL_DISABLE_WORLD_OPTION=true. O bootstrap renomeia esse "
+                    "arquivo como backup e faz o INI voltar a valer.")
+    except OSError:
+        return None
+    return None
+
+
 def _checar_coletor(ultima_metrica_ts: int | None, intervalo_s: int):
     if not ultima_metrica_ts:
         return Verificacao("coletor", "aviso", "Sem amostras de métricas ainda",
@@ -157,6 +189,9 @@ def diagnostico(ctx: dict) -> dict:
     itens.append(_checar_backups(ctx["backup_dir"], ctx["listar_backups"]))
     itens.append(_checar_ini(ctx["ini_path"]))
     itens.append(_checar_save_dir(ctx["save_dir"]))
+    world_option = _checar_world_option(ctx["save_dir"])
+    if world_option:
+        itens.append(world_option)
     itens.append(_checar_coletor(ctx.get("ultima_metrica_ts"),
                                  ctx.get("intervalo_colete", 30)))
 

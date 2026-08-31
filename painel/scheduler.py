@@ -22,7 +22,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+DATA_DIR = os.path.abspath(os.environ.get("PANEL_DATA_DIR") or
+                           os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 DB_PATH = os.path.join(DATA_DIR, "painel.db")
 
 TIPOS = ("restart", "save", "announce", "backup_mundo", "limpeza_backups")

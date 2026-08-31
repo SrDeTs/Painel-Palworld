@@ -4,10 +4,34 @@
 # tenha uma senha compartilhada com o painel, sem expor 8212 para a rede.
 set -euo pipefail
 
-INI="/palworld/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
-SECRET="/palworld/panel-admin-secret"
+PALWORLD_ROOT="${PALWORLD_ROOT:-/palworld}"
+INI="${PALWORLD_ROOT}/Pal/Saved/Config/LinuxServer/PalWorldSettings.ini"
+SECRET="${PALWORLD_ROOT}/panel-admin-secret"
+SAVE_ROOT="${PALWORLD_ROOT}/Pal/Saved/SaveGames"
 
 umask 077
+
+desativar_world_option() {
+  # WorldOption.sav tem prioridade sobre PalWorldSettings.ini. Se ele veio de
+  # uma migração ou ferramenta externa, inclusive AdminPassword é ignorada e a
+  # REST API passa a responder Unauthorized. Mantemos uma cópia recuperável ao
+  # lado do original em vez de apagar dados do usuário.
+  if [[ "${PANEL_DISABLE_WORLD_OPTION:-true}" != "true" || ! -d "$SAVE_ROOT" ]]; then
+    return
+  fi
+
+  local world_option destino sufixo
+  while IFS= read -r -d '' world_option; do
+    sufixo="$(date -u +%Y%m%dT%H%M%SZ)"
+    destino="${world_option}.disabled-by-panel-${sufixo}"
+    while [[ -e "$destino" ]]; do
+      sufixo="${sufixo}-1"
+      destino="${world_option}.disabled-by-panel-${sufixo}"
+    done
+    mv -- "$world_option" "$destino"
+    echo "[palworld-bootstrap] WorldOption.sav desativado porque sobrescreve o INI; backup: $destino" >&2
+  done < <(find "$SAVE_ROOT" -type f -name 'WorldOption.sav' -print0)
+}
 
 ler_senha_ini() {
   python3 - "$INI" <<'PY'
@@ -48,6 +72,8 @@ fi
 export ADMIN_PASSWORD="$admin_password"
 printf '%s' "$ADMIN_PASSWORD" > "$SECRET"
 chmod 600 "$SECRET" 2>/dev/null || true
+
+desativar_world_option
 
 # Se já existe configuração real, preserva todas as opções do usuário e altera
 # somente o necessário para o painel: senha administrativa + REST API local.
@@ -114,6 +140,10 @@ else
   export REST_API_PORT=8212
   export DISABLE_GENERATE_SETTINGS=false
   echo "[palworld-bootstrap] Primeiro boot: configuração inicial será gerada pela imagem." >&2
+fi
+
+if [[ "${PALWORLD_BOOTSTRAP_TEST_ONLY:-false}" == "true" ]]; then
+  exit 0
 fi
 
 exec /home/steam/server/init.sh

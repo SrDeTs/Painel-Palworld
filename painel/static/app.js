@@ -26,7 +26,7 @@ function aplicarTema(theme, persistir = true) {
   html.classList.toggle("dark", next === "dark");
   if (persistir) localStorage.setItem("pp_theme", next);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = next === "dark" ? "#07111f" : "#eaf8fb";
+  if (meta) meta.content = next === "dark" ? "#0d100f" : "#eeeee8";
   const label = $("#theme-label");
   if (label) label.textContent = next === "dark" ? "Modo noite" : "Modo dia";
   const toggle = $("#theme-toggle");
@@ -168,6 +168,161 @@ function toast(msg, type = "ok", ms = 3800) {
   setTimeout(() => el.remove(), ms);
 }
 
+/* ================= selects consistentes com o tema ================= */
+
+let selectCustomAtual = null;
+let selectCustomPopover = null;
+
+function rotuloSelect(select) {
+  return select.selectedOptions[0]?.textContent?.trim() || "Selecionar…";
+}
+
+function sincronizarSelectCustom(select) {
+  if (!select?.dataset.selectCustom) return;
+  const trigger = select.parentElement?.querySelector(".select-ui-trigger");
+  if (!trigger) return;
+  trigger.querySelector("span").textContent = rotuloSelect(select);
+  trigger.disabled = select.disabled;
+  trigger.classList.toggle("is-placeholder", select.value === "");
+}
+
+function fecharSelectCustom({ foco = false } = {}) {
+  if (!selectCustomAtual) return;
+  const trigger = selectCustomAtual.parentElement?.querySelector(".select-ui-trigger");
+  trigger?.setAttribute("aria-expanded", "false");
+  selectCustomPopover?.classList.add("hidden");
+  selectCustomPopover?.replaceChildren();
+  selectCustomAtual = null;
+  if (foco) trigger?.focus();
+}
+
+function posicionarSelectCustom() {
+  if (!selectCustomAtual || !selectCustomPopover) return;
+  const trigger = selectCustomAtual.parentElement.querySelector(".select-ui-trigger");
+  const rect = trigger.getBoundingClientRect();
+  const largura = Math.min(Math.max(rect.width, 210), window.innerWidth - 24);
+  const altura = Math.min(360, selectCustomAtual.options.length * 42 + 16);
+  const abaixo = window.innerHeight - rect.bottom - 12;
+  const acima = rect.top - 12;
+  const abreAcima = abaixo < Math.min(altura, 220) && acima > abaixo;
+  const left = Math.min(Math.max(12, rect.left), window.innerWidth - largura - 12);
+  const top = abreAcima
+    ? Math.max(12, rect.top - Math.min(altura, acima) - 6)
+    : Math.min(window.innerHeight - 12, rect.bottom + 6);
+  Object.assign(selectCustomPopover.style, {
+    left: `${left}px`, top: `${top}px`, width: `${largura}px`,
+    maxHeight: `${Math.max(120, abreAcima ? acima - 6 : abaixo)}px`,
+  });
+}
+
+function abrirSelectCustom(select) {
+  if (select.disabled) return;
+  if (selectCustomAtual === select) return fecharSelectCustom({ foco: true });
+  fecharSelectCustom();
+  selectCustomAtual = select;
+  const trigger = select.parentElement.querySelector(".select-ui-trigger");
+  trigger.setAttribute("aria-expanded", "true");
+
+  selectCustomPopover.replaceChildren(...[...select.options].map((option, i) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.optionIndex = String(i);
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(i === select.selectedIndex));
+    button.disabled = option.disabled;
+    button.innerHTML = `<span>${esc(option.textContent)}</span><i aria-hidden="true">${i === select.selectedIndex ? "✓" : ""}</i>`;
+    return button;
+  }));
+  selectCustomPopover.classList.remove("hidden");
+  posicionarSelectCustom();
+  requestAnimationFrame(() => {
+    const opcoes = [...selectCustomPopover.querySelectorAll("button:not(:disabled)")];
+    (opcoes.find((b) => b.getAttribute("aria-selected") === "true") || opcoes[0])?.focus();
+  });
+}
+
+function aprimorarSelect(select) {
+  if (!(select instanceof HTMLSelectElement) || select.dataset.selectCustom) return;
+  select.dataset.selectCustom = "true";
+  select.classList.add("select-ui-native");
+  const wrapper = document.createElement("span");
+  wrapper.className = "select-ui";
+  select.parentNode.insertBefore(wrapper, select);
+  wrapper.appendChild(select);
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "select-ui-trigger";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.innerHTML = `<span></span><i aria-hidden="true">⌄</i>`;
+  wrapper.appendChild(trigger);
+  sincronizarSelectCustom(select);
+
+  trigger.addEventListener("click", () => abrirSelectCustom(select));
+  trigger.addEventListener("keydown", (ev) => {
+    if (["ArrowDown", "ArrowUp", "Enter", " "].includes(ev.key)) {
+      ev.preventDefault();
+      abrirSelectCustom(select);
+    }
+  });
+  select.addEventListener("change", () => sincronizarSelectCustom(select));
+}
+
+function iniciarSelectsCustom() {
+  selectCustomPopover = document.createElement("div");
+  selectCustomPopover.className = "select-ui-popover hidden";
+  selectCustomPopover.setAttribute("role", "listbox");
+  document.body.appendChild(selectCustomPopover);
+  document.querySelectorAll("select").forEach(aprimorarSelect);
+
+  const observer = new MutationObserver((mudancas) => {
+    mudancas.forEach((mudanca) => {
+      if (mudanca.type === "attributes") sincronizarSelectCustom(mudanca.target);
+      mudanca.addedNodes.forEach((node) => {
+        if (!(node instanceof Element)) return;
+        if (node.matches("select")) aprimorarSelect(node);
+        node.querySelectorAll?.("select").forEach(aprimorarSelect);
+      });
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true,
+    attributes: true, attributeFilter: ["disabled"] });
+
+  selectCustomPopover.addEventListener("click", (ev) => {
+    const opcao = ev.target.closest("[data-option-index]");
+    if (!opcao || !selectCustomAtual) return;
+    const select = selectCustomAtual;
+    select.selectedIndex = parseInt(opcao.dataset.optionIndex, 10);
+    sincronizarSelectCustom(select);
+    fecharSelectCustom();
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  selectCustomPopover.addEventListener("keydown", (ev) => {
+    const opcoes = [...selectCustomPopover.querySelectorAll("button:not(:disabled)")];
+    const atual = opcoes.indexOf(document.activeElement);
+    if (ev.key === "Escape") {
+      ev.preventDefault(); fecharSelectCustom({ foco: true });
+    } else if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      const delta = ev.key === "ArrowDown" ? 1 : -1;
+      opcoes[(atual + delta + opcoes.length) % opcoes.length]?.focus();
+    } else if (ev.key === "Home" || ev.key === "End") {
+      ev.preventDefault();
+      opcoes[ev.key === "Home" ? 0 : opcoes.length - 1]?.focus();
+    } else if (ev.key === "Tab") fecharSelectCustom();
+  });
+  document.addEventListener("pointerdown", (ev) => {
+    if (!selectCustomAtual || ev.target.closest(".select-ui") ||
+        ev.target.closest(".select-ui-popover")) return;
+    fecharSelectCustom();
+  });
+  window.addEventListener("resize", () => fecharSelectCustom());
+  window.addEventListener("scroll", (ev) => {
+    if (!selectCustomPopover?.contains(ev.target)) fecharSelectCustom();
+  }, true);
+}
+
 async function api(path, opts = {}) {
   const res = await fetch("/api/" + path, {
     method: opts.method || "GET",
@@ -296,6 +451,17 @@ function ativarAba(btn) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
   $(`#tab-${btn.dataset.tab}`).classList.add("active");
 
+  // Ao trocar de uma tela longa, leva o início da nova seção para baixo da
+  // navegação fixa em vez de manter um trecho intermediário na viewport.
+  const main = $("#main-content");
+  const tabs = $(".tabs");
+  if (main && tabs) {
+    const topo = main.getBoundingClientRect().top + window.scrollY
+      - tabs.offsetHeight - 24;
+    const reduzido = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: Math.max(0, topo), behavior: reduzido ? "auto" : "smooth" });
+  }
+
   if (btn.dataset.tab === "players") {
     loadPlayers();
     loadRegistro();
@@ -395,11 +561,13 @@ function fmtUptimeLong(sec) {
   return partes.join(" ");
 }
 
-const CORES_SERIE = { fps: "#45c4ad", players: "#d9a13f", frame: "#7aa2f7" };
+const CORES_SERIE = { fps: "#a8d65e", players: "#ddb865", frame: "#8095ad" };
 let dbRangeAtual = "24h";
 let dbAmostras = [];
 let dbSeriesVisiveis = { fps: true, players: true, frame: true };
 let dbUltimoHistoricoEm = 0; // throttle: histórico é carregado no máx. 1x/min
+let dbHistoricoCarregando = false;
+let dbMensagemHistorico = "Carregando histórico…";
 
 function preencherCartoesDashboard(dash) {
   const s = dash.status || {};
@@ -457,23 +625,33 @@ async function pollDashboard() {
     dash = await api("dashboard");
   } catch (_) { return; }
   preencherCartoesDashboard(dash);
-  const agora = Date.now();
-  if (agora - dbUltimoHistoricoEm > 60_000) {
-    dbUltimoHistoricoEm = agora;
-    carregarHistorico();
-  }
+  carregarHistorico();
 }
 
 async function carregarHistorico(forcar = false) {
-  if (!forcar && Date.now() - dbUltimoHistoricoEm < 10_000) return;
-  dbUltimoHistoricoEm = Date.now();
-  let dados;
+  if (dbHistoricoCarregando) return;
+  if (!forcar && Date.now() - dbUltimoHistoricoEm < 60_000) return;
+  dbHistoricoCarregando = true;
+  if (!dbAmostras.length) {
+    dbMensagemHistorico = "Carregando histórico…";
+    desenharGrafico();
+  }
   try {
-    dados = await api("metrics/history?range=" + dbRangeAtual);
-  } catch (_) { return; }
-  dbAmostras = dados.amostras || [];
-  desenharGrafico();
-  atualizarResumo(dados.resumo);
+    const dados = await api("metrics/history?range=" + dbRangeAtual);
+    dbAmostras = dados.amostras || [];
+    dbUltimoHistoricoEm = Date.now();
+    dbMensagemHistorico = dbAmostras.length === 1
+      ? "Primeira amostra registrada — aguardando a próxima."
+      : "Nenhuma amostra encontrada neste período.";
+    desenharGrafico();
+    atualizarResumo(dados.resumo);
+  } catch (_) {
+    dbMensagemHistorico = "Não foi possível carregar o histórico. Tentaremos novamente.";
+    if (!dbAmostras.length) desenharGrafico();
+    $("#db-resumo").textContent = dbMensagemHistorico;
+  } finally {
+    dbHistoricoCarregando = false;
+  }
 }
 
 function rotuloTempo(ts) {
@@ -520,11 +698,23 @@ function desenharGrafico() {
     ctx.textAlign = "right";
     ctx.fillText(rotuloTempo(dbAmostras[dbAmostras.length - 1].ts),
                  w - padR, h - 6);
+
+    const temSerieDesenhavel = ["fps", "players", "frame"].some((serie) =>
+      dbSeriesVisiveis[serie] && dbAmostras
+        .filter((a) => valoresSerie(a, serie) != null).length >= 2);
+    if (!temSerieDesenhavel) {
+      ctx.fillStyle = "rgba(141,160,175,.72)";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Amostras sem métricas — servidor ou API offline no período.",
+                   w / 2, h / 2);
+      return;
+    }
   } else {
     ctx.fillStyle = "rgba(141,160,175,.6)";
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Coletando amostras… aguarde alguns minutos.",
+    ctx.fillText(dbMensagemHistorico,
                  w / 2, h / 2);
   }
 
@@ -585,6 +775,11 @@ function atualizarResumo(resumo) {
     ? `méd ${resumo.frame_med} ms` : "—";
   $("#hs-online").textContent = resumo.pct_online != null
     ? `${resumo.pct_online}% online` : "—";
+  if (!resumo.online_amostras || resumo.fps_med == null) {
+    el.textContent = `${resumo.amostras} amostra${resumo.amostras === 1 ? "" : "s"} `
+      + "sem FPS — o servidor ou a autenticação da API ficou offline no período.";
+    return;
+  }
   el.textContent = `Últimas ${rotuloFaixa(dbRangeAtual)}: ${resumo.amostras} amostras`
     + (resumo.fps_med != null ? ` · FPS médio ${resumo.fps_med}` : "");
 }
@@ -1190,6 +1385,8 @@ function abrirJobModal(job = null) {
   $("#job-tipo").value = job?.tipo || "restart";
   const modo = job?.hora ? "hora" : "intervalo";
   $("#job-agenda-modo").value = modo;
+  sincronizarSelectCustom($("#job-tipo"));
+  sincronizarSelectCustom($("#job-agenda-modo"));
   $("#job-hora").value = job?.hora || "04:00";
   $("#job-intervalo").value = job?.intervalo_horas ?? 24;
   sincronizarCamposJob();
@@ -1495,40 +1692,47 @@ let seEstado = null;        // resposta de /api/settings/editor
 let seMudancas = {};        // chave → valor bruto digitado
 let sePorChave = {};        // chave → item do catálogo
 let seCatAtiva = "todas";
-let sePresetsCarregados = false;
+let seSalvando = false;
 
 function seValorAtual(item) {
   if (Object.prototype.hasOwnProperty.call(seMudancas, item.chave))
     return seMudancas[item.chave];
-  const v = seEstado.valores[item.chave];
-  return v === "" ? (item.padrao ?? "") : v;
+  return seEstado.valores[item.chave];
 }
 
 function seInputHTML(item) {
   const valor = seValorAtual(item);
-  const id = `se-in-${item.chave}`;
+  const ausente = valor === null || valor === undefined;
+  const valorCampo = ausente ? "" : valor;
   const senhaTipo = item.senha ? "password" : "text";
   if (item.tipo === "bool") {
     const marcado = valor === true || valor === "true" || valor === "True";
-    return `<label class="switch"><input type="checkbox" data-chave="${item.chave}" ${marcado ? "checked" : ""}><span></span></label>`;
+    return `<select data-chave="${item.chave}">
+      <option value="" disabled ${ausente ? "selected" : ""}>Não definido</option>
+      <option value="True" ${!ausente && marcado ? "selected" : ""}>True</option>
+      <option value="False" ${!ausente && !marcado ? "selected" : ""}>False</option>
+    </select>`;
   }
   if (item.tipo === "enum") {
-    return `<select data-chave="${item.chave}">${item.opcoes.map(o =>
+    return `<select data-chave="${item.chave}">
+      <option value="" disabled ${ausente ? "selected" : ""}>Não definido</option>
+      ${item.opcoes.map(o =>
       `<option value="${esc(o)}" ${o === valor ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
   }
   if (item.tipo === "int")
     return `<input type="number" step="1" inputmode="numeric"
               min="${item.min ?? ""}" max="${item.max ?? ""}"
-              data-chave="${item.chave}" value="${esc(valor)}">`;
+              placeholder="Não definido" data-chave="${item.chave}" value="${esc(valorCampo)}">`;
   if (item.tipo === "float")
     return `<input type="number" step="any" inputmode="decimal"
               min="${item.min ?? ""}" max="${item.max ?? ""}"
-              data-chave="${item.chave}" value="${esc(valor)}">`;
+              placeholder="Não definido" data-chave="${item.chave}" value="${esc(valorCampo)}">`;
   if (item.tipo === "password")
     return `<input type="${senhaTipo}" autocomplete="new-password"
-              placeholder="${valor ? MASKA : "(vazio)"}"
+              placeholder="${valor ? MASKA : "Não definida"}"
               data-chave="${item.chave}" value="">`;
-  return `<input type="text" maxlength="${item.max_len || 300}" data-chave="${item.chave}" value="${esc(valor)}">`;
+  return `<input type="text" maxlength="${item.max_len || 300}"
+              placeholder="Não definido" data-chave="${item.chave}" value="${esc(valorCampo)}">`;
 }
 
 function seRenderGrupos() {
@@ -1542,18 +1746,22 @@ function seRenderGrupos() {
     if (!itens.length) return "";
     const linhas = itens.map((item) => {
       const alterada = Object.prototype.hasOwnProperty.call(seMudancas, item.chave);
+      const fonte = seEstado.fontes[item.chave] || "ausente";
+      const fonteLabel = { ini: "arquivo INI", api: "API do jogo",
+        ausente: "não definido" }[fonte] || fonte;
       return `
       <div class="se-item ${alterada ? "changed" : ""}" data-chave="${item.chave}">
         <div class="se-info">
           <span class="se-label">${esc(item.label || item.chave)}
             <code>${esc(item.chave)}</code>
             <span class="badge-restart" title="Vale após reiniciar o servidor">restart</span>
+            <span class="se-source se-source-${esc(fonte)}">${esc(fonteLabel)}</span>
           </span>
           <small class="muted">${esc(item.desc || "")}${item.unidade ? ` (${esc(item.unidade)})` : ""}</small>
         </div>
         <div class="se-ctrl">
           ${seInputHTML(item)}
-          <button class="btn ghost tiny se-default" title="Restaurar padrão (${esc(String(item.padrao))})">↺</button>
+          <button class="btn ghost tiny se-default" title="Definir explicitamente o padrão (${esc(String(item.padrao))})">↺</button>
         </div>
       </div>`;
     }).join("");
@@ -1566,8 +1774,8 @@ function seAtualizarContagem() {
   const n = Object.keys(seMudancas).length;
   $("#se-count").textContent = n === 0 ? "sem alterações"
     : `${n} alteração${n > 1 ? "ões" : ""}`;
-  $("#se-save").disabled = n === 0;
-  $("#se-cancel").disabled = n === 0;
+  $("#se-save").disabled = n === 0 || seSalvando || !seEstado?.ini_existe;
+  $("#se-cancel").disabled = n === 0 || seSalvando;
   document.querySelectorAll("#se-grupos .se-item").forEach((el) => {
     el.classList.toggle("changed",
       Object.prototype.hasOwnProperty.call(seMudancas, el.dataset.chave));
@@ -1587,27 +1795,30 @@ async function loadSettings() {
   $("#se-aviso-ini").classList.toggle("hidden", !!seEstado.ini_existe);
   seRenderGrupos();
   seAtualizarContagem();
-  if (!sePresetsCarregados) carregarPresetsSelect();
   loadSettingsBackups();
 }
 
 /* ---- mudanças nos campos (delegação) ---- */
-$("#se-grupos").addEventListener("input", (ev) => {
+function seRegistrarEdicao(ev) {
   const alvo = ev.target.closest("[data-chave]");
   if (!alvo || !seEstado) return;
   const chave = alvo.dataset.chave;
   const item = sePorChave[chave];
   if (!item) return;
-  const bruto = item.tipo === "bool" ? alvo.checked : alvo.value;
+  const bruto = alvo.value;
   compararMudanca(chave, bruto, item);
-});
+}
+$("#se-grupos").addEventListener("input", seRegistrarEdicao);
+// O select temático dispara change; inputs nativos normalmente disparam input.
+$("#se-grupos").addEventListener("change", seRegistrarEdicao);
 
 function compararMudanca(chave, bruto, item) {
   const atual = seEstado.valores[chave];
-  const efetivo = atual === "" ? (item.padrao ?? "") : atual;
   if (item.senha && bruto === "") {
     delete seMudancas[chave];           // senha tocada mas vazia = sem mudança
-  } else if (String(efetivo) === String(bruto) || efetivo === bruto) {
+  } else if ((atual === null || atual === undefined) && bruto === "") {
+    delete seMudancas[chave];
+  } else if (String(atual) === String(bruto) || atual === bruto) {
     delete seMudancas[chave];
   } else {
     seMudancas[chave] = bruto;
@@ -1623,7 +1834,7 @@ $("#se-grupos").addEventListener("click", (ev) => {
   const item = sePorChave[chave];
   if (!item) return;
   const efetivo = seEstado.valores[chave];
-  const jaEhPadrao = String(efetivo === "" ? "" : efetivo) === String(item.padrao);
+  const jaEhPadrao = String(efetivo ?? "") === String(item.padrao);
   if (jaEhPadrao) delete seMudancas[chave];
   else seMudancas[chave] = item.padrao;
   seRenderItem(chave);
@@ -1638,7 +1849,7 @@ function seRenderItem(chave) {
   const antigo = ctrl.querySelector("[data-chave]");
   const foco = document.activeElement === antigo;
   ctrl.innerHTML = seInputHTML(item) +
-    `<button class="btn ghost tiny se-default" title="Restaurar padrão (${esc(String(item.padrao))})">↺</button>`;
+    `<button class="btn ghost tiny se-default" title="Definir explicitamente o padrão (${esc(String(item.padrao))})">↺</button>`;
   if (foco) ctrl.querySelector("[data-chave]").focus();
 }
 
@@ -1680,23 +1891,29 @@ $("#se-save").addEventListener("click", async () => {
   }
   if (!diff.validas.length) { toast("Nenhuma alteração real para aplicar.", "warn"); return; }
   abrirSeModal({
-    titulo: "Revisar alterações",
-    texto: "Confira antes de gravar no PalWorldSettings.ini:",
+    titulo: "Confirmar salvamento",
+    texto: "Salvar somente estas alterações no PalWorldSettings.ini?",
     linhas: diff.validas,
-    nota: "⚠️ As novas configurações valem após REINICIAR o servidor. Um backup do arquivo atual será criado automaticamente.",
-    okLabel: "Aplicar e criar backup",
+    nota: "Nenhuma outra configuração será adicionada. Um backup do arquivo atual será criado. As mudanças valem após reiniciar o servidor.",
+    cancelLabel: "Não",
+    okLabel: "Sim",
     onOk: async () => {
+      if (seSalvando) return;
+      seSalvando = true;
+      seAtualizarContagem();
       try {
         const res = await api("settings/apply", { method: "POST", body: { mudancas: seMudancas } });
         if (!res.ok) {
           toast(res.invalidas.map(i => `${i.chave}: ${i.motivo}`).join(" · "), "err", 7000);
           return;
         }
-        toast(`✅ ${res.aplicadas.length} configuração(ões) gravadas. Backup: ${res.backup}. Reinicie o servidor!`, "ok", 9000);
-        sePresetsCarregados = false; // recarrega tudo
+        toast(`${res.aplicadas.length} configuração(ões) gravadas. Backup: ${res.backup}. Reinicie o servidor.`, "ok", 9000);
         await loadSettings();
       } catch (e) {
         toast(`Falhou: ${e.message}`, "err", 7000);
+      } finally {
+        seSalvando = false;
+        seAtualizarContagem();
       }
     },
   });
@@ -1705,7 +1922,7 @@ $("#se-save").addEventListener("click", async () => {
 /* ---- modal genérico do editor (diff) ---- */
 let seModalOnOk = null;
 
-function abrirSeModal({ titulo, texto, linhas, nota, okLabel, onOk }) {
+function abrirSeModal({ titulo, texto, linhas, nota, cancelLabel, okLabel, onOk }) {
   seModalOnOk = onOk || null;
   $("#se-modal-title").textContent = titulo;
   $("#se-modal-text").textContent = texto || "";
@@ -1716,6 +1933,7 @@ function abrirSeModal({ titulo, texto, linhas, nota, okLabel, onOk }) {
       <td class="mono se-para">${esc(formatarValor(l.para))}</td>
     </tr>`).join("");
   $("#se-modal-note").textContent = nota || "";
+  $("#se-modal-cancel").textContent = cancelLabel || "Cancelar";
   $("#se-modal-ok").textContent = okLabel || "Aplicar";
   $("#se-modal-backdrop").classList.remove("hidden");
   $("#se-modal-ok").focus();
@@ -1724,7 +1942,8 @@ function abrirSeModal({ titulo, texto, linhas, nota, okLabel, onOk }) {
 function formatarValor(v) {
   if (v === true) return "True";
   if (v === false) return "False";
-  if (v === null || v === undefined || v === "") return "(padrão)";
+  if (v === null || v === undefined) return "(não definido)";
+  if (v === "") return "(vazio)";
   return String(v);
 }
 
@@ -1740,50 +1959,6 @@ $("#se-modal-ok").addEventListener("click", async () => {
   const fn = seModalOnOk;
   fecharSeModal();
   if (fn) await fn();
-});
-
-/* ---- presets ---- */
-async function carregarPresetsSelect() {
-  try {
-    const dados = await api("settings/presets");
-    window.__se_presets = dados.presets || [];
-    const sel = $("#se-preset-sel");
-    sel.innerHTML = '<option value="">Presets…</option>' +
-      window.__se_presets.map((p, i) =>
-        `<option value="${i}">${esc(rotuloPreset(p.nome))}</option>`).join("");
-    sePresetsCarregados = true;
-  } catch (_) { /* offline — segue sem presets */ }
-}
-
-function rotuloPreset(nome) {
-  const mapa = {
-    casual: "Casual", normal: "Normal (oficial)", hardcore: "Hardcore",
-    pve: "PvE", pvp: "PvP", small_server: "Servidor pequeno",
-    large_server: "Servidor grande", performance: "Performance",
-    xp_rapido: "XP rápido", farm_rapido: "Farm rápido",
-  };
-  return mapa[nome] || nome;
-}
-
-$("#se-preset-sel").addEventListener("change", (ev) => {
-  const idx = parseInt(ev.target.value, 10);
-  ev.target.value = "";
-  if (isNaN(idx)) return;
-  const preset = (window.__se_presets || [])[idx];
-  if (!preset) return;
-  if (!preset.validas.length) { toast("Este preset não muda nada em relação ao atual.", "warn"); return; }
-  abrirSeModal({
-    titulo: `Preset: ${rotuloPreset(preset.nome)}`,
-    texto: preset.descricao,
-    linhas: preset.validas,
-    nota: "As mudanças caem no formulário — você ainda revisa e salva depois.",
-    okLabel: "Carregar no formulário",
-    onOk: () => {
-      preset.validas.forEach((v) => { seMudancas[v.chave] = v.para; seRenderItem(v.chave); });
-      seAtualizarContagem();
-      toast(`${preset.validas.length} mudança(s) carregadas. Revise e clique em Salvar.`);
-    },
-  });
 });
 
 /* ---- exportar ---- */
@@ -2157,8 +2332,13 @@ let notifCanais = [];
 
 function renderNotifCanais() {
   const alvo = $("#notif-canal-lista");
+  $("#notif-salvar").disabled = notifCanais.length === 0;
   if (!notifCanais.length) {
-    alvo.innerHTML = `<p class="muted small">Nenhum canal configurado.</p>`;
+    alvo.innerHTML = `<div class="inline-empty-state">
+      <svg class="icon"><use href="#i-wave"/></svg>
+      <div><b>Nenhum canal configurado</b>
+      <small>Adicione um destino para receber alertas do servidor.</small></div>
+    </div>`;
     return;
   }
   alvo.innerHTML = notifCanais.map((c, i) => `
@@ -2390,6 +2570,7 @@ async function loadSessoes() {
   try {
     const dados = await api("sessoes");
     const lista = dados.sessoes || [];
+    $("#sessoes-count").textContent = lista.length;
     if (!lista.length) {
       tbody.innerHTML = `<tr><td colspan="4" class="muted center">Nenhuma sessão ativa.</td></tr>`;
       return;
@@ -2401,7 +2582,7 @@ async function loadSessoes() {
         <td class="mono small">${fmtDataHora(s.criado)}</td>
         <td class="mono small">${fmtDataHora(s.expira)}</td>
       </tr>`).join("");
-  } catch (_) {}
+  } catch (_) { $("#sessoes-count").textContent = "—"; }
 }
 
 $("#usuarios-tbody").addEventListener("change", async (ev) => {
@@ -2514,6 +2695,17 @@ $("#sess-revogar-todas").addEventListener("click", async () => {
 const themeToggle = $("#theme-toggle");
 if (themeToggle) themeToggle.addEventListener("click", () => alternarTema(themeToggle));
 
+const commandButton = $("#btn-cmdk");
+if (commandButton) commandButton.addEventListener("click", cmdkAbrir);
+
+document.querySelectorAll('[data-action="refresh-all"]').forEach((button) => {
+  button.addEventListener("click", () => {
+    button.classList.add("is-loading");
+    refreshAll();
+    setTimeout(() => button.classList.remove("is-loading"), 650);
+  });
+});
+
 /* PWA: registra o service worker (silencioso onde não suportado/http LAN) */
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -2608,6 +2800,8 @@ $("#cmdk-resultados").addEventListener("click", (ev) => {
 });
 
 /* ================= boot ================= */
+
+iniciarSelectsCustom();
 
 (async function boot() {
   if (!token) return showLogin();

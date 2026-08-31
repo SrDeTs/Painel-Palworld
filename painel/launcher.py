@@ -41,25 +41,62 @@ def _ler_segredo(caminho: str) -> str:
 
 
 def _preparar_admin_password(espera_s: float = 30.0) -> None:
-    # Valor não-vazio definido explicitamente pelo usuário sempre tem prioridade.
-    if os.environ.get("ADMIN_PASSWORD"):
-        return
-
+    # O segredo é publicado pelo bootstrap do servidor depois que ele decide
+    # qual senha realmente ficou ativa (env, INI existente ou senha gerada).
+    # Por isso ele é a fonte de verdade. Isso também evita a armadilha comum do
+    # CasaOS: editar ADMIN_PASSWORD somente no serviço Painel e deixar o jogo
+    # usando a senha que já estava salva no PalWorldSettings.ini.
+    senha_explicita = (os.environ.get("ADMIN_PASSWORD") or "").strip()
     ini = os.environ.get("PALWORLD_INI") or INI_PADRAO
     segredo_path = os.environ.get("PALWORLD_ADMIN_SECRET_FILE") or SECRET_PADRAO
     limite = time.monotonic() + max(0.0, espera_s)
 
     while True:
-        senha = _ler_segredo(segredo_path) or _ler_admin_password_do_ini(ini)
-        if senha:
-            os.environ["ADMIN_PASSWORD"] = senha
-            origem = segredo_path if _ler_segredo(segredo_path) else ini
-            print(f"[launcher] credencial administrativa carregada de {origem} (valor oculto).", flush=True)
+        senha_segredo = _ler_segredo(segredo_path)
+        if senha_segredo:
+            os.environ["ADMIN_PASSWORD"] = senha_segredo
+            if senha_explicita and senha_explicita != senha_segredo:
+                print(
+                    "[launcher] AVISO: ADMIN_PASSWORD do Painel era diferente "
+                    "da credencial ativa publicada pelo servidor; usando o "
+                    "segredo compartilhado (valores ocultos).",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[launcher] credencial administrativa sincronizada por "
+                    f"{segredo_path} (valor oculto).",
+                    flush=True,
+                )
             return
+
+        # Sem um valor explícito, instalações antigas ainda podem obter a senha
+        # diretamente do INI enquanto o arquivo de segredo não existe.
+        if not senha_explicita:
+            senha_ini = _ler_admin_password_do_ini(ini)
+            if senha_ini:
+                os.environ["ADMIN_PASSWORD"] = senha_ini
+                print(
+                    f"[launcher] credencial administrativa carregada de {ini} "
+                    "(valor oculto).",
+                    flush=True,
+                )
+                return
 
         if time.monotonic() >= limite:
             break
         time.sleep(0.5)
+
+    if senha_explicita:
+        # Compatibilidade com instalações onde os dois serviços não montam o
+        # mesmo volume. Uma eventual divergência aparecerá na aba Saúde.
+        os.environ["ADMIN_PASSWORD"] = senha_explicita
+        print(
+            "[launcher] AVISO: o servidor não publicou o segredo compartilhado; "
+            "mantendo ADMIN_PASSWORD do Painel (valor oculto).",
+            flush=True,
+        )
+        return
 
     print(
         "[launcher] AVISO: o servidor ainda não publicou a credencial administrativa. "

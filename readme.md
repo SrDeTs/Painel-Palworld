@@ -23,7 +23,7 @@ Painel web para administrar o servidor dedicado de Palworld
 | 📟 Console | Eventos do painel em **tempo real via SSE** (fallback polling): pausar, filtrar por nível, buscar, copiar, baixar |
 | 💾 Backups | Lista/downloads dos zips do jogo + backup sob demanda gerado pelo painel, exclusão e **restauração segura multi-etapas** (preserva estado anterior, trava concorrência, dupla confirmação) |
 | ⏰ Agenda | Tarefas agendadas: restart, save, anúncio, backup, limpeza — horário diário ou intervalo, executar agora |
-| ⚙️ Configurações | **Editor completo** das 56 opções do `PalWorldSettings.ini` em 12 categorias: validação, min/máx, diff antes de aplicar, backup automático, presets, export/import, modo bruto |
+| ⚙️ Configurações | Editor do `PalWorldSettings.ini` em 12 categorias: somente valores reais do arquivo/API, confirmação antes de gravar, backup automático, export/import e modo bruto |
 | ❤️ Saúde | Diagnóstico da API/disco/backups/INI/saves/banco com sugestões e ações "Corrigir", **auto-recuperação** configurável (FPS baixo → restart gracioso com cooldown e limite diário) |
 | 🔔 Notificações | Discord webhook, Telegram bot, webhook genérico — com filtro por evento e botão testar |
 | 🚨 Emergência & Manutenção | Ação de emergência (anúncio→save→backup→shutdown, sem concorrência) e modo manutenção que bloqueia ações do painel |
@@ -66,14 +66,15 @@ Painel Palworld/
    sudo cp -r "painel/." /DATA/AppData/palworld/painel/
    ```
 
-2. Antes de subir, troque as senhas no `Palworld Server.yml`
-   (e mantenha as duas IGUAIS):
+2. Antes de subir, defina as senhas no `Palworld Server.yml`:
 
-   - `ADMIN_PASSWORD` (serviço `palworld` **e** serviço `Painel`)
+   - `ADMIN_PASSWORD` no serviço `palworld`. No serviço `Painel`, pode ficar
+     vazia: ele lê automaticamente a credencial efetivamente usada pelo jogo
+     através do segredo compartilhado. Se preencher nos dois, use o mesmo valor.
    - `PANEL_PASSWORD` (senha de entrada no site do painel)
 
-   Se ficar vazia/fraca, o painel gera uma senha forte automaticamente e
-   mostra no log do container.
+   Se ficar vazia, o painel gera uma senha forte automaticamente e mostra no
+   log do container. Qualquer valor preenchido é usado exatamente como está.
 
 3. Escolha a porta do painel no serviço `Painel` do YAML:
 
@@ -100,11 +101,12 @@ Painel Palworld/
 | Variável | Serviço | Para que serve | Padrão |
 |---|---|---|---|
 | `PANEL_PORT` | Painel | Porta do site | `3564` |
-| `PANEL_PASSWORD` | Painel | Senha de entrada; vazio/fraco = **gerada autom.** | (gerada) |
-| `ADMIN_PASSWORD` | Ambos | Senha admin do jogo — IGUAL nos dois serviços | — |
+| `PANEL_PASSWORD` | Painel | Senha de entrada; ausente/vazia = **gerada autom.**; valor informado é respeitado | (gerada) |
+| `ADMIN_PASSWORD` | palworld/Painel | Senha admin do jogo; o Painel sincroniza automaticamente pelo segredo compartilhado | — |
 | `PALWORLD_API` | Painel | Endereço da REST API | `http://palworld:8212` |
 | `PALWORLD_INI` | Painel | Caminho do ini → habilita o editor | — |
 | `PALWORLD_SAVE_DIR` | Painel | Pasta SaveGames → habilita backup/restauração | derivado do INI |
+| `PANEL_DISABLE_WORLD_OPTION` | palworld | Renomeia `WorldOption.sav` para backup, pois ele sobrescreve o INI e a senha REST | `true` |
 | `BACKUP_DIR` | Painel | Pasta de backups montada | `/data/backups` |
 | `PUBLIC_STATUS` | Painel | `0` desliga a página pública `/status` | ligada |
 | `PUBLIC_HOST` | Painel | Endereço exibido na página pública | host da API |
@@ -126,8 +128,8 @@ Sem Docker não há YAML: configure por variáveis de ambiente
 
 ```bash
 python3 tests/mock_palworld.py &          # API falsa na porta 8212
-ADMIN_PASSWORD=123 PANEL_PORT=8080 python3 painel/painel.py &
-# abra http://localhost:8080 (login: senha única "123"... ou defina PANEL_PASSWORD)
+ADMIN_PASSWORD=123 PANEL_PASSWORD=senha-teste PANEL_PORT=8080 python3 painel/painel.py &
+# abra http://localhost:8080 (login: "senha-teste")
 python3 tests/test_painel.py              # 70 testes, ~9s
 ```
 
@@ -138,11 +140,16 @@ segurança e path traversal.
 
 ## Segurança
 
-- **Nunca inicia com senha fraca**: sem `PANEL_PASSWORD` (ou vazia/"123"),
-  gera uma forte, guarda em `painel/data/painel_auth.json` (perm. 600) e
-  mostra no log.
+- Sem `PANEL_PASSWORD` (ou com valor vazio), gera uma senha forte, guarda em
+  `painel/data/painel_auth.json` (perm. 600) e mostra no log. Um valor definido
+  explicitamente no YAML é sempre respeitado; se for fraco, o painel avisa no
+  log e recomenda a troca, mas não o substitui.
 - REST API do jogo usa HTTP Basic sem TLS e dá controle total: no compose ela
   fica **sem exposição pública**; nunca faça port forwarding dela.
+- `WorldOption.sav` tem prioridade sobre o `PalWorldSettings.ini` e pode deixar
+  a senha REST divergente. O bootstrap o renomeia para
+  `WorldOption.sav.disabled-by-panel-DATA`; o conteúdo não é apagado e pode ser
+  restaurado manualmente se necessário.
 - Sessões revogáveis; rate limit de login (bloqueio de 60s após 5 erros);
   cabeçalhos CSP restritivos; proteção contra path traversal em downloads,
   restores e imports; corpo de requisição limitado (413).

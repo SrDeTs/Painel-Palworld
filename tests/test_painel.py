@@ -15,13 +15,21 @@ import http.client
 import importlib.util
 import json
 import os
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
 
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.dirname(_TESTS_DIR)
+
+# O processo inteiro de teste usa um diretório descartável. Isso precisa ser
+# definido antes de importar painel.py, pois todos os módulos calculam seus
+# caminhos de SQLite/JSON durante o import.
+_TEST_DATA_TMP = tempfile.TemporaryDirectory(prefix="painel-palworld-tests-")
+os.environ["PANEL_DATA_DIR"] = _TEST_DATA_TMP.name
 
 PANEL_PASSWORD = "senha-teste-painel"
 ADMIN_PASSWORD = "senha-teste-admin"
@@ -56,6 +64,10 @@ import players as players_mod  # noqa: E402
 import scheduler as scheduler_mod  # noqa: E402
 import notifications as notif_mod  # noqa: E402
 import users as users_mod  # noqa: E402
+import health as health_mod  # noqa: E402
+
+launcher_mod = _importar(
+    os.path.join(_ROOT_DIR, "painel", "launcher.py"), "launcher_teste")
 
 _painel_srv = painel.ThreadingHTTPServer(("127.0.0.1", 0), painel.PanelHandler)
 PANEL_PORT = _painel_srv.server_address[1]
@@ -73,6 +85,14 @@ class TestesPainel(unittest.TestCase):
         painel._limpar_falhas("127.0.0.1")
 
     # ---------- helpers ----------
+
+    def test_00_dados_estao_fora_do_diretorio_real(self):
+        real = os.path.join(_ROOT_DIR, "painel", "data")
+        self.assertNotEqual(os.path.realpath(store_mod.DATA_DIR),
+                            os.path.realpath(real))
+        for modulo in (users_mod, players_mod, scheduler_mod, notif_mod):
+            self.assertEqual(os.path.realpath(modulo.DATA_DIR),
+                             os.path.realpath(_TEST_DATA_TMP.name))
 
     def _req(self, metodo, caminho, corpo=None, token=None):
         """Faz a requisição e devolve (status:int, corpo:dict, resposta crua)."""
@@ -108,6 +128,10 @@ class TestesPainel(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertIn("text/html", resp.headers.get("Content-Type", ""))
         self.assertIn(b"Painel Palworld", dados)
+        self.assertNotIn(b'id="se-preset-trigger"', dados)
+        self.assertNotIn("Salvar…".encode("utf-8"), dados)
+        self.assertIn(b'id="se-modal-cancel" class="btn ghost">N', dados)
+        self.assertIn(b'id="se-modal-ok" class="btn primary">Sim', dados)
 
     def test_02_cabecalhos_de_seguranca(self):
         status, _corpo, resp = self._req("GET", "/")
@@ -173,6 +197,16 @@ class TestesPainel(unittest.TestCase):
             self.assertEqual(status, 401)
         finally:
             painel.PANEL_PASSWORD = original
+
+    def test_14_senha_fraca_explicita_e_respeitada(self):
+        self.assertTrue(painel._senha_panel_configurada_explicitamente(
+            "123", "variável de ambiente"))
+        self.assertTrue(painel._senha_panel_configurada_explicitamente(
+            "admin", "config.env"))
+        self.assertFalse(painel._senha_panel_configurada_explicitamente(
+            "123", "padrão"))
+        self.assertFalse(painel._senha_panel_configurada_explicitamente(
+            "   ", "variável de ambiente"))
 
     # ---------- leitura via proxy ----------
 
@@ -399,7 +433,7 @@ class TestesPainel(unittest.TestCase):
         'ExpRate=2.500000,ServerName="Servidor Teste",AdminPassword="segredo",'
         "CrossplayPlatforms=(Steam,Xbox))\n")
 
-    def test_60_editor_sem_ini_mostra_padrao(self):
+    def test_60_editor_sem_ini_nao_inventa_valores(self):
         tok = self._token()
         self.setUpEditor(ini_conteudo=None)
         try:
@@ -409,12 +443,16 @@ class TestesPainel(unittest.TestCase):
             self.assertFalse(corpo["ini_existe"])
             chaves = {c["chave"] for c in corpo["catalogo"]}
             self.assertIn("ExpRate", chaves)
-            self.assertEqual(corpo["fontes"]["ExpRate"], "padrao")
+            self.assertEqual(corpo["fontes"]["ExpRate"], "ausente")
+            self.assertIsNone(corpo["valores"]["ExpRate"])
+            # Valores reais expostos pela API continuam disponíveis e marcados.
+            self.assertEqual(corpo["fontes"]["BaseCampMaxNum"], "api")
+            self.assertEqual(corpo["valores"]["BaseCampMaxNum"], 128)
             # senha nunca volta em texto claro
             for c in corpo["catalogo"]:
                 if c["senha"]:
                     v = corpo["valores"][c["chave"]]
-                    self.assertIn(v, ("", "\u2022\u2022\u2022\u2022\u2022\u2022"))
+                    self.assertIn(v, (None, "", "\u2022\u2022\u2022\u2022\u2022\u2022"))
         finally:
             self.tearDownEditor()
 
@@ -436,8 +474,10 @@ class TestesPainel(unittest.TestCase):
 
     def test_62_diff_valida_e_normaliza(self):
         tok = self._token()
-        self.setUpEditor(self.INI_EXEMPLO)
+        ini = self.setUpEditor(self.INI_EXEMPLO)
         try:
+            with open(ini, "rb") as fh:
+                antes = fh.read()
             status, corpo, _resp = self._req(
                 "POST", "/api/settings/diff",
                 {"mudancas": {"ExpRate": "3,5",       # vírgula vira ponto
@@ -451,6 +491,9 @@ class TestesPainel(unittest.TestCase):
             self.assertEqual(validas.get("bHardcore"), True)
             self.assertTrue(any(i["chave"] == "DeathPenalty"
                                 for i in corpo["invalidas"]))
+            # Validar/revisar é somente leitura: não grava nem reformata o INI.
+            with open(ini, "rb") as fh:
+                self.assertEqual(fh.read(), antes)
         finally:
             self.tearDownEditor()
 
@@ -463,6 +506,20 @@ class TestesPainel(unittest.TestCase):
                 {"mudancas": {"ExpRate": 5}}, token=tok)
             self.assertEqual(status, 409)
             self.assertIn("PALWORLD_INI", corpo["error"])
+        finally:
+            self.tearDownEditor()
+
+    def test_63b_apply_nao_cria_ini_ausente_com_defaults(self):
+        tok = self._token()
+        ini = self.setUpEditor(None)
+        painel.PALWORLD_INI = ini  # caminho configurado, arquivo inexistente
+        try:
+            status, corpo, _resp = self._req(
+                "POST", "/api/settings/apply",
+                {"mudancas": {"ExpRate": 5}}, token=tok)
+            self.assertEqual(status, 409)
+            self.assertIn("não foi encontrado", corpo["error"])
+            self.assertFalse(os.path.exists(ini))
         finally:
             self.tearDownEditor()
 
@@ -481,6 +538,13 @@ class TestesPainel(unittest.TestCase):
             texto = open(ini, encoding="utf-8").read()
             self.assertIn("ExpRate=7.0", texto)
             self.assertIn("bHardcore=True", texto)
+            self.assertIn(
+                'DeathPenalty=All,bIsUseBackupSaveData=True,ExpRate=7.0,'
+                'ServerName="Servidor Teste",AdminPassword="segredo",'
+                'CrossplayPlatforms=(Steam,Xbox),bHardcore=True)', texto)
+            # Uma alteração nunca completa o arquivo com defaults hardcoded.
+            self.assertNotIn("BaseCampMaxNum=", texto)
+            self.assertNotIn("DayTimeSpeedRate=", texto)
             # backup criado e listável
             status, corpo, _resp = self._req("GET", "/api/settings/backups",
                                              token=tok)
@@ -548,6 +612,8 @@ class TestesPainel(unittest.TestCase):
             bruto_txt = json.dumps(corpo)
             self.assertNotIn("segredo", bruto_txt)
             self.assertNotIn("AdminPassword", bruto_txt)
+            # Chave ausente no INI e na API não entra no export como default.
+            self.assertNotIn("DayTimeSpeedRate", corpo["valores"])
         finally:
             self.tearDownEditor()
 
@@ -658,6 +724,19 @@ class TestesPainel(unittest.TestCase):
         self.assertEqual(status, 401)
         status, _corpo, _resp = self._req("GET", "/api/dashboard")
         self.assertEqual(status, 401)
+
+    def test_74_coleta_aceita_server_fps_average(self):
+        store = self.setUpBanco()
+        try:
+            store.registrar_metricas({
+                "online": True,
+                "metrics": {"serverFPSAverage": 117.5,
+                            "currentPlayerNum": 1}}, ts=time.time())
+            ultima = store.ultima_metrica()
+            self.assertEqual(ultima["fps"], 117.5)
+            self.assertEqual(ultima["players"], 1)
+        finally:
+            self.tearDownBanco()
 
     # ---------- registro de jogadores & bans ----------
 
@@ -1280,6 +1359,124 @@ class TestesPainel(unittest.TestCase):
             token=tok)
         self.assertEqual(status, 400)
         self.assertIn("não encontrado", corpo["erro"])
+
+    def test_98_launcher_prioriza_credencial_publicada_pelo_servidor(self):
+        pasta = tempfile.TemporaryDirectory(prefix="palworld-secret-test-")
+        segredo = os.path.join(pasta.name, "panel-admin-secret")
+        ini = os.path.join(pasta.name, "PalWorldSettings.ini")
+        anteriores = {
+            chave: os.environ.get(chave)
+            for chave in ("ADMIN_PASSWORD", "PALWORLD_ADMIN_SECRET_FILE",
+                          "PALWORLD_INI")
+        }
+        try:
+            with open(segredo, "w", encoding="utf-8") as fh:
+                fh.write("senha-real-do-servidor")
+            os.environ["ADMIN_PASSWORD"] = "senha-diferente-no-painel"
+            os.environ["PALWORLD_ADMIN_SECRET_FILE"] = segredo
+            os.environ["PALWORLD_INI"] = ini
+
+            launcher_mod._preparar_admin_password(espera_s=0)
+
+            self.assertEqual(os.environ["ADMIN_PASSWORD"],
+                             "senha-real-do-servidor")
+        finally:
+            for chave, valor in anteriores.items():
+                if valor is None:
+                    os.environ.pop(chave, None)
+                else:
+                    os.environ[chave] = valor
+            pasta.cleanup()
+
+    def test_99_saude_explica_rejeicao_da_senha(self):
+        item, _snap = health_mod._checar_api(lambda: {
+            "online": False,
+            "error": "O jogo rejeitou a senha de admin (401).",
+        })
+        self.assertEqual(item["estado"], "erro")
+        self.assertIn("Senha administrativa rejeitada", item["mensagem"])
+        self.assertIn("segredo compartilhado", item["sugestao"])
+
+    def test_99b_saude_aceita_fps_medio_com_caixa_variada(self):
+        item, _snap = health_mod._checar_api(lambda: {
+            "online": True,
+            "metrics": {"serverFPSAverage": 59.6},
+        })
+        self.assertEqual(item["estado"], "ok")
+        self.assertIn("FPS 60", item["mensagem"])
+
+    def test_99c_api_ressincroniza_segredo_apos_401(self):
+        pasta = tempfile.TemporaryDirectory(prefix="palworld-reauth-test-")
+        segredo = os.path.join(pasta.name, "panel-admin-secret")
+        anteriores = (painel.ADMIN_PASSWORD, painel._basic_cache,
+                       painel.PALWORLD_ADMIN_SECRET_FILE,
+                       mock_mod.ADMIN_PASSWORD)
+        try:
+            with open(segredo, "w", encoding="utf-8") as fh:
+                fh.write("senha-rotacionada")
+            painel.ADMIN_PASSWORD = "senha-antiga"
+            painel._basic_cache = ""
+            painel.PALWORLD_ADMIN_SECRET_FILE = segredo
+            mock_mod.ADMIN_PASSWORD = "senha-rotacionada"
+
+            metrics = painel.api("GET", "/v1/api/metrics")
+
+            self.assertIn("serverfps", {k.lower() for k in metrics})
+            self.assertEqual(painel.ADMIN_PASSWORD, "senha-rotacionada")
+        finally:
+            (painel.ADMIN_PASSWORD, painel._basic_cache,
+             painel.PALWORLD_ADMIN_SECRET_FILE,
+            mock_mod.ADMIN_PASSWORD) = anteriores
+            pasta.cleanup()
+
+    def test_99d_bootstrap_desativa_world_option_sem_apagar(self):
+        pasta = tempfile.TemporaryDirectory(prefix="palworld-bootstrap-test-")
+        raiz = pasta.name
+        mundo = os.path.join(
+            raiz, "Pal", "Saved", "SaveGames", "0", "mundo-teste")
+        os.makedirs(mundo)
+        world_option = os.path.join(mundo, "WorldOption.sav")
+        with open(world_option, "wb") as fh:
+            fh.write(b"configuracao-binaria-original")
+        env = os.environ.copy()
+        env.update({
+            "PALWORLD_ROOT": raiz,
+            "ADMIN_PASSWORD": "senha-bootstrap",
+            "PANEL_DISABLE_WORLD_OPTION": "true",
+            "PALWORLD_BOOTSTRAP_TEST_ONLY": "true",
+        })
+        try:
+            proc = subprocess.run(
+                ["bash", os.path.join(_ROOT_DIR, "painel",
+                                      "palworld_entrypoint.sh")],
+                env=env, check=True, capture_output=True, text=True)
+            backups = [
+                os.path.join(mundo, nome) for nome in os.listdir(mundo)
+                if nome.startswith("WorldOption.sav.disabled-by-panel-")
+            ]
+            self.assertFalse(os.path.exists(world_option))
+            self.assertEqual(len(backups), 1)
+            with open(backups[0], "rb") as fh:
+                self.assertEqual(fh.read(), b"configuracao-binaria-original")
+            with open(os.path.join(raiz, "panel-admin-secret"),
+                      encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "senha-bootstrap")
+            self.assertIn("WorldOption.sav desativado", proc.stderr)
+        finally:
+            pasta.cleanup()
+
+    def test_99e_saude_detecta_world_option_prioritario(self):
+        pasta = tempfile.TemporaryDirectory(prefix="palworld-health-test-")
+        try:
+            with open(os.path.join(pasta.name, "WorldOption.sav"), "wb") as fh:
+                fh.write(b"x")
+            item = health_mod._checar_world_option(pasta.name)
+            self.assertIsNotNone(item)
+            self.assertEqual(item["id"], "world_option")
+            self.assertEqual(item["estado"], "critico")
+            self.assertIn("sobrescrevendo", item["mensagem"])
+        finally:
+            pasta.cleanup()
 
 
 if __name__ == "__main__":

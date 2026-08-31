@@ -18,7 +18,8 @@ import os
 import threading
 import urllib.request
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+DATA_DIR = os.path.abspath(os.environ.get("PANEL_DATA_DIR") or
+                           os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 ARQUIVO = os.path.join(DATA_DIR, "notifications.json")
 
 EVENTOS = ("server_down", "server_up", "ban", "kick", "backup",

@@ -17,7 +17,8 @@ import time
 
 # ------------------------------------------------------------------ caminhos
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+DATA_DIR = os.path.abspath(os.environ.get("PANEL_DATA_DIR") or
+                           os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 DB_PATH = os.path.join(DATA_DIR, "painel.db")
 
 SCHEMA_VERSION = 1
@@ -139,7 +140,7 @@ def registrar_metricas(snapshot: dict, ts: float = None) -> None:
                 uptime, base_camps, world_day, extra)
                VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (agora, online,
-             _num(_pegar(met, "serverfps")),
+             _num(_pegar(met, "serverfps", "serverfpsaverage")),
              _num(_pegar(met, "serverframetime")),
              _int(_pegar(met, "currentplayernum")),
              _int(_pegar(met, "maxplayernum")),

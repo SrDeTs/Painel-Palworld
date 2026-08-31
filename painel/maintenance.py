@@ -16,7 +16,8 @@ import json
 import os
 import threading
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+DATA_DIR = os.path.abspath(os.environ.get("PANEL_DATA_DIR") or
+                           os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
 ARQ_MANUTENCAO = os.path.join(DATA_DIR, "manutencao.json")
 
 _lock_emergencia = threading.Lock()

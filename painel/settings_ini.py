@@ -11,6 +11,8 @@ arquivo, além de criar/restaurar backups numerados por data.
 
 import os
 import shutil
+import stat
+import tempfile
 import time
 
 _CABECALHO = """; Este arquivo é gerenciado pelo jogo e pelo Painel Palworld.
@@ -152,6 +154,157 @@ def _linha_optionsettings(valores: dict, ordem_original: list) -> str:
     return _MARKER + ",".join(pares) + ")"
 
 
+def _limites_optionsettings(texto: str):
+    """Devolve (início interno, fim interno) preservando o texto original."""
+    marcador = texto.find(_MARKER)
+    if marcador < 0:
+        return None
+    inicio = marcador + len(_MARKER)
+    nivel = 1
+    dentro_aspas = False
+    escapado = False
+    for pos in range(inicio, len(texto)):
+        c = texto[pos]
+        if dentro_aspas:
+            if escapado:
+                escapado = False
+            elif c == "\\":
+                escapado = True
+            elif c == '"':
+                dentro_aspas = False
+            continue
+        if c == '"':
+            dentro_aspas = True
+        elif c == "(":
+            nivel += 1
+        elif c == ")":
+            nivel -= 1
+            if nivel == 0:
+                return inicio, pos
+    return None
+
+
+def _segmentos_topo(texto: str, inicio: int, fim: int) -> list:
+    """Faixas dos pares separados por vírgula no nível superior."""
+    faixas = []
+    comeco = inicio
+    nivel = 0
+    dentro_aspas = False
+    escapado = False
+    for pos in range(inicio, fim):
+        c = texto[pos]
+        if dentro_aspas:
+            if escapado:
+                escapado = False
+            elif c == "\\":
+                escapado = True
+            elif c == '"':
+                dentro_aspas = False
+            continue
+        if c == '"':
+            dentro_aspas = True
+        elif c == "(":
+            nivel += 1
+        elif c == ")":
+            nivel -= 1
+        elif c == "," and nivel == 0:
+            faixas.append((comeco, pos))
+            comeco = pos + 1
+    faixas.append((comeco, fim))
+    return faixas
+
+
+def _escrever_atomico(caminho: str, texto: str) -> None:
+    """Substitui o arquivo preservando modo e proprietário quando existentes."""
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    try:
+        anterior = os.stat(caminho)
+    except OSError:
+        anterior = None
+    fd, tmp = tempfile.mkstemp(prefix=".PalWorldSettings.", suffix=".tmp",
+                               dir=os.path.dirname(caminho))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            if anterior:
+                os.fchmod(fh.fileno(), stat.S_IMODE(anterior.st_mode))
+                try:
+                    os.fchown(fh.fileno(), anterior.st_uid, anterior.st_gid)
+                except PermissionError:
+                    pass
+            fh.write(texto)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, caminho)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def aplicar_mudancas(caminho: str, mudancas: dict) -> None:
+    """Altera somente as chaves informadas, sem reserializar o restante."""
+    if not mudancas:
+        return
+    try:
+        with open(caminho, encoding="utf-8", newline="") as fh:
+            texto = fh.read()
+    except OSError:
+        gravar(caminho, dict(mudancas))
+        return
+
+    limites = _limites_optionsettings(texto)
+    if not limites:
+        valores = carregar(caminho)
+        valores.update(mudancas)
+        gravar(caminho, valores)
+        return
+
+    inicio, fim = limites
+    pendentes = dict(mudancas)
+    substituicoes = []
+    for seg_inicio, seg_fim in _segmentos_topo(texto, inicio, fim):
+        bruto = texto[seg_inicio:seg_fim]
+        igual = bruto.find("=")
+        if igual < 0:
+            continue
+        chave = bruto[:igual].strip()
+        if chave not in pendentes:
+            continue
+        valor_inicio = seg_inicio + igual + 1
+        valor_fim = seg_fim
+        while valor_inicio < valor_fim and texto[valor_inicio].isspace():
+            valor_inicio += 1
+        while valor_fim > valor_inicio and texto[valor_fim - 1].isspace():
+            valor_fim -= 1
+        substituicoes.append(
+            (valor_inicio, valor_fim, _valor_para_texto(pendentes[chave])))
+        # Se um arquivo corrompido repetir a chave, todas as ocorrências devem
+        # receber o mesmo valor; a remoção fica para depois da varredura.
+
+    chaves_encontradas = {
+        texto[s:e].split("=", 1)[0].strip()
+        for s, e in _segmentos_topo(texto, inicio, fim)
+        if "=" in texto[s:e]
+    }
+    faltantes = [(k, v) for k, v in pendentes.items()
+                  if k not in chaves_encontradas]
+    if faltantes:
+        inserir_em = fim
+        while inserir_em > inicio and texto[inserir_em - 1].isspace():
+            inserir_em -= 1
+        conteudo = texto[inicio:inserir_em].strip()
+        separador = "" if not conteudo or conteudo.endswith(",") else ","
+        novos = ",".join(
+            f"{chave}={_valor_para_texto(valor)}"
+            for chave, valor in faltantes)
+        substituicoes.append((inserir_em, inserir_em, separador + novos))
+
+    for comeco, termino, novo in sorted(substituicoes, reverse=True):
+        texto = texto[:comeco] + novo + texto[termino:]
+    _escrever_atomico(caminho, texto)
+
+
 def gravar(caminho: str, valores: dict) -> None:
     """Grava os valores preservando linhas fora da OptionSettings."""
     ordem_original = list(carregar(caminho).keys())
@@ -172,10 +325,7 @@ def gravar(caminho: str, valores: dict) -> None:
             saida.append(linha)
     if not substituida:
         saida.append(linha_nova)
-    tmp = caminho + ".pp-tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(saida).rstrip("\n") + "\n")
-    os.replace(tmp, caminho)
+    _escrever_atomico(caminho, "\n".join(saida).rstrip("\n") + "\n")
 
 
 # ------------------------------------------------------------------ backups

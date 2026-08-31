@@ -19,7 +19,7 @@ Configuração (nesta ordem de prioridade):
   3. Valores padrão
 
   PANEL_PORT      porta do painel            (padrão 8080)
-  PANEL_PASSWORD  senha de acesso ao painel  (padrão "123")
+  PANEL_PASSWORD  senha de acesso ao painel  (ausente = gerada)
   PALWORLD_API    endereço da API do jogo    (padrão http://127.0.0.1:8212)
   ADMIN_PASSWORD  AdminPassword do servidor  (padrão "123")
   API_TIMEOUT     timeout das chamadas em s  (padrão 4)
@@ -107,6 +107,8 @@ PANEL_HOST = _cfg("PANEL_HOST", "0.0.0.0")
 PANEL_PASSWORD = _cfg("PANEL_PASSWORD", "123")
 PALWORLD_API = _cfg("PALWORLD_API", "http://127.0.0.1:8212").rstrip("/")
 ADMIN_PASSWORD = _cfg("ADMIN_PASSWORD", "123")
+PALWORLD_ADMIN_SECRET_FILE = _cfg(
+    "PALWORLD_ADMIN_SECRET_FILE", "/palworld/panel-admin-secret")
 API_TIMEOUT = float(_cfg("API_TIMEOUT", "4"))
 MAX_API_BODY = 5_000_000  # teto de leitura da resposta da API do jogo (bytes)
 GAME_PORT = _cfg("GAME_PORT", "8211")  # porta UDP do jogo, p/ exibir o endereço certo no painel
@@ -135,10 +137,10 @@ DATA_DIR = store_mod.DATA_DIR
 SESSION_TTL = 12 * 3600  # 12 horas
 
 # ------------------------------------------------- política de senha do painel
-# Nunca subir com senha fraca/ausente: se PANEL_PASSWORD não veio do ambiente/
-# config (ou veio vazia/"123"), gera uma senha forte, guarda em data/ com
-# permissão 600 e avisa no console. O admin pode trocar a qualquer momento
-# definindo PANEL_PASSWORD.
+# Se PANEL_PASSWORD não foi informada (ou veio vazia), gera uma senha forte e
+# guarda em data/ com permissão 600. Quando o usuário define um valor
+# explicitamente no ambiente/config.env, esse valor é a fonte da verdade — até
+# quando é fraco. Nesse caso o painel respeita a escolha e emite um aviso claro.
 
 _AUTH_FILE = os.path.join(DATA_DIR, "painel_auth.json")
 _SENHAS_FRACAS = ("", "123", "admin", "senha", "password", "palworld")
@@ -146,6 +148,11 @@ _SENHAS_FRACAS = ("", "123", "admin", "senha", "password", "palworld")
 
 def _senha_fraca(senha: str) -> bool:
     return not senha or senha.strip().lower() in _SENHAS_FRACAS
+
+
+def _senha_panel_configurada_explicitamente(senha: str, fonte: str) -> bool:
+    """Distingue valor escolhido pelo usuário do fallback interno da aplicação."""
+    return fonte in ("variável de ambiente", "config.env") and bool(senha.strip())
 
 
 def _hash_senha(senha: str, salt: bytes) -> str:
@@ -175,7 +182,9 @@ def _credencial_gerada() -> str | None:
 
 
 PANEL_PASSWORD_AUTOGERADA = False
-if _senha_fraca(PANEL_PASSWORD):
+PANEL_PASSWORD_FRACA_CONFIGURADA = False
+if not _senha_panel_configurada_explicitamente(
+        PANEL_PASSWORD, _fonte.get("PANEL_PASSWORD", "padrão")):
     anterior = _credencial_gerada()
     if anterior and not _senha_fraca(anterior):
         PANEL_PASSWORD = anterior  # reusa a senha gerada em outra execução
@@ -188,6 +197,8 @@ if _senha_fraca(PANEL_PASSWORD):
             os.chmod(_AUTH_FILE, 0o600)
         except OSError:
             pass  # sem permissão de escrita — segue com a senha só nesta execução
+else:
+    PANEL_PASSWORD_FRACA_CONFIGURADA = _senha_fraca(PANEL_PASSWORD)
 
 
 def _verificar_senha_panel(senha: str) -> bool:
@@ -309,7 +320,29 @@ def _basic_header() -> str:
         return _basic_cache
 
 
-def api(method: str, path: str, payload=None):
+def _sincronizar_admin_password_do_segredo() -> bool:
+    """Atualiza a credencial em memória se o servidor publicou outra senha."""
+    global ADMIN_PASSWORD, _basic_cache
+    try:
+        with open(PALWORLD_ADMIN_SECRET_FILE, "r", encoding="utf-8",
+                  errors="strict") as fh:
+            senha = fh.read(4096).strip()
+    except (OSError, UnicodeError):
+        return False
+    if not senha or senha == ADMIN_PASSWORD:
+        return False
+    with _basic_lock:
+        ADMIN_PASSWORD = senha
+        _basic_cache = ""
+    print(
+        "[api] credencial administrativa ressincronizada pelo segredo "
+        "compartilhado após resposta 401 (valor oculto).",
+        flush=True,
+    )
+    return True
+
+
+def api(method: str, path: str, payload=None, _repetir_auth: bool = True):
     """Chama a REST API do Palworld. Levanta ApiError em qualquer falha."""
     data = None
     headers = {"Authorization": _basic_header()}
@@ -328,6 +361,8 @@ def api(method: str, path: str, payload=None):
         except Exception:
             detail = ""
         if e.code == 401:
+            if _repetir_auth and _sincronizar_admin_password_do_segredo():
+                return api(method, path, payload, _repetir_auth=False)
             raise ApiError(502, "O jogo rejeitou a senha de admin (401). "
                                 "Confira se ADMIN_PASSWORD do painel é igual à do servidor.")
         raise ApiError(502, f"A API do jogo respondeu {e.code}: {detail or e.reason}")
@@ -1518,9 +1553,6 @@ class PanelHandler(BaseHTTPRequestHandler):
         if path == "/api/settings/editor":
             self._send_json(200, settings_ed_mod.estado(
                 PALWORLD_INI, self._settings_api_atual()))
-        elif path == "/api/settings/presets":
-            self._send_json(200, {"presets": settings_ed_mod.presets_com_estado(
-                PALWORLD_INI, self._settings_api_atual())})
         elif path == "/api/settings/backups":
             self._send_json(200, {"backups": settings_ini_mod.listar_backups(
                 CONFIG_BACKUPS_DIR)})
@@ -2124,13 +2156,20 @@ def main() -> None:
         print(f"     (guardada em {os.path.relpath(_AUTH_FILE, _SCRIPT_DIR)})")
         print("     Para definir a sua: variável de ambiente PANEL_PASSWORD.")
     else:
-        print(f"  Senha de acesso ao painel : {PANEL_PASSWORD}   "
+        print(f"  Senha de acesso ao painel : (configurada)   "
               f"[{_fonte.get('PANEL_PASSWORD', '?')}]")
     print(f"  ADMIN_PASSWORD (do jogo)  : "
           f"{'(vazia)' if not ADMIN_PASSWORD else '(configurada)'}   "
           f"[{_fonte.get('ADMIN_PASSWORD', '?')}]")
     print(f"  API do jogo               : {PALWORLD_API}")
     print(linha)
+    if PANEL_PASSWORD_FRACA_CONFIGURADA:
+        store_mod.registrar_evento(
+            "warn", "security",
+            "PANEL_PASSWORD fraca — valor explícito foi respeitado")
+        print("  ⚠️  PANEL_PASSWORD fraca — o valor definido foi respeitado.")
+        print("     Recomenda-se usar pelo menos 8 caracteres antes de expor o painel.")
+        print(linha)
     if _senha_fraca(ADMIN_PASSWORD):
         store_mod.registrar_evento(
             "warn", "security",
